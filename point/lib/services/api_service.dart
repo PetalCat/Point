@@ -470,6 +470,16 @@ class ApiService {
     await _request('PUT', '/api/ghost', body: {'ghosted': ghosted});
   }
 
+  // Federation
+
+  Future<void> sendFederated(String recipient, String messageType, Map<String, dynamic> payload) async {
+    await _request('POST', '/api/federation/send', body: {
+      'recipient': recipient,
+      'message_type': messageType,
+      'payload': payload,
+    });
+  }
+
   // MLS Key Exchange
 
   Future<void> uploadKeyPackage(String base64KeyPackage) async {

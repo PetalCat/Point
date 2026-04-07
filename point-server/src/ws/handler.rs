@@ -210,7 +210,41 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
             }
         }
         "user" => {
-            // Verify the sender and recipient have an active share
+            // Check if this is a federated recipient (user@otherdomain)
+            let is_federated = recipient_id.contains('@')
+                && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
+
+            if is_federated {
+                // Forward via federation
+                let sender = format!("{}@{}", user_id, state.config.domain);
+                let msg = serde_json::json!({
+                    "sender": sender,
+                    "recipient": recipient_id,
+                    "message_type": "location.update",
+                    "payload": {
+                        "encrypted_blob": encrypted_blob,
+                        "source_type": source_type,
+                    },
+                    "timestamp": timestamp,
+                });
+                let state_clone = state.clone();
+                let recipient = recipient_id.to_string();
+                tokio::spawn(async move {
+                    if let Some(domain) = recipient.split('@').nth(1) {
+                        let url = format!("https://{}/federation/inbox", domain);
+                        let client = reqwest::Client::new();
+                        if let Err(e) = client.post(&url)
+                            .json(&msg)
+                            .timeout(std::time::Duration::from_secs(10))
+                            .send()
+                            .await
+                        {
+                            tracing::error!(error = %e, recipient = %recipient, "federation forward failed");
+                        }
+                    }
+                });
+            } else {
+            // Local delivery — verify the sender and recipient have an active share
             match db::shares::are_sharing(&state.pool, user_id, recipient_id).await {
                 Ok(true) => {
                     if recipient_id != user_id {
@@ -228,6 +262,7 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
                     tracing::error!(error = %e, "failed to check share status");
                 }
             }
+            } // end else (local delivery)
         }
         other => {
             tracing::warn!(recipient_type = %other, "unknown recipient_type");

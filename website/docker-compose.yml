@@ -1,0 +1,23 @@
+services:
+  point:
+    build: ../point-server
+    volumes:
+      - point-data:/data
+    environment:
+      DATABASE_URL: "sqlite:/data/point.db?mode=rwc"
+      LISTEN: "0.0.0.0:8080"
+      DOMAIN: "point.petalcat.dev"
+      OPEN_REGISTRATION: "true"
+      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+    restart: unless-stopped
+
+  website:
+    build: .
+    ports:
+      - "8585:80"
+    depends_on:
+      - point
+    restart: unless-stopped
+
+volumes:
+  point-data:

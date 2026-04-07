@@ -1,15 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" fill="none">
-  <rect width="48" height="48" rx="12" fill="#fff"/>
-  <!-- Multi-color pin like the real Google Maps icon -->
-  <!-- Bottom point (green) -->
-  <path d="M24 40 L18 28 Q12 19 12 17C12 10.4 17.4 6 24 6" fill="#34A853"/>
-  <!-- Right side (yellow) -->
-  <path d="M24 6C30.6 6 36 10.4 36 17Q36 19 30 28L24 40" fill="#FBBC04"/>
-  <!-- Top left (blue) -->
-  <path d="M12 17C12 10.4 17.4 6 24 6V17H12Z" fill="#4285F4"/>
-  <!-- Top right (red) -->
-  <path d="M24 6C30.6 6 36 10.4 36 17H24V6Z" fill="#EA4335"/>
-  <!-- Center dot -->
-  <circle cx="24" cy="17" r="5" fill="#fff"/>
-  <circle cx="24" cy="17" r="2.5" fill="#4285F4"/>
+  <rect width="48" height="48" rx="12" fill="#1A73E8"/>
+  <path d="M24 8C18.5 8 14 12.5 14 18C14 26 24 38 24 38S34 26 34 18C34 12.5 29.5 8 24 8Z" fill="#4285F4"/>
+  <circle cx="24" cy="18" r="4" fill="#fff"/>
+  <path d="M10 14C10 14 12 10 16 8" stroke="#6AB7FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <path d="M8 18C8 18 10 12 16 9" stroke="#6AB7FF" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
+  <path d="M38 14C38 14 36 10 32 8" stroke="#6AB7FF" stroke-width="1.5" stroke-linecap="round" fill="none"/>
+  <path d="M40 18C40 18 38 12 32 9" stroke="#6AB7FF" stroke-width="1.5" stroke-linecap="round" fill="none" opacity="0.5"/>
 </svg>

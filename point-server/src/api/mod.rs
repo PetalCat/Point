@@ -8,6 +8,7 @@ pub mod items;
 pub mod shares;
 pub mod zones;
 pub mod bridge_entities;
+pub mod federation;
 pub mod ghost;
 pub mod mls;
 
@@ -126,6 +127,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/bridges/entities/{id}/share", post(bridge_entities::share_entity))
         .route("/api/bridges/entities/{id}/shares", get(bridge_entities::list_entity_shares))
         .route("/api/ghost", put(ghost::set_ghost))
+        .route("/.well-known/point", get(federation::well_known))
+        .route("/federation/inbox", post(federation::inbox))
+        .route("/api/federation/send", post(federation::send_federated))
         .route("/api/mls/keys", post(mls::upload_keys))
         .route("/api/mls/keys/{user_id}", get(mls::get_keys))
         .route("/api/mls/welcome", post(mls::send_welcome))
