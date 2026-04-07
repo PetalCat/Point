@@ -70,14 +70,15 @@ pub async fn handle_connection(ws: WebSocket, claims: Claims, state: AppState, h
     let hub2 = hub.clone();
     let uid = user_id.clone();
     let recv_task = tokio::spawn(async move {
+        let mut rate_counters = std::collections::HashMap::new();
         while let Some(Ok(msg)) = ws_rx.next().await {
             match msg {
                 Message::Text(text) => {
-                    process_message(&uid, &text, &state, &hub2).await;
+                    process_message(&uid, &text, &state, &hub2, &mut rate_counters).await;
                 }
                 Message::Binary(data) => {
                     if let Ok(text) = String::from_utf8(data.to_vec()) {
-                        process_message(&uid, &text, &state, &hub2).await;
+                        process_message(&uid, &text, &state, &hub2, &mut rate_counters).await;
                     }
                 }
                 Message::Close(_) => break,
@@ -96,7 +97,32 @@ pub async fn handle_connection(ws: WebSocket, claims: Claims, state: AppState, h
     tracing::info!(user_id = %user_id, conn_id = %conn_id, "ws disconnected");
 }
 
-async fn process_message(user_id: &str, text: &str, state: &AppState, hub: &Hub) {
+/// Simple per-user rate limiter. Returns true if the message should be dropped.
+fn rate_limited(counters: &mut std::collections::HashMap<String, (u32, std::time::Instant)>, msg_type: &str) -> bool {
+    let (max_per_min, key) = match msg_type {
+        "location.update" => (60, "loc"),
+        "location.nudge" => (10, "nudge"),
+        "presence.update" => (30, "pres"),
+        _ => (120, "other"),
+    };
+
+    let entry = counters.entry(key.to_string()).or_insert((0, std::time::Instant::now()));
+    if entry.1.elapsed() > std::time::Duration::from_secs(60) {
+        // Reset window
+        *entry = (1, std::time::Instant::now());
+        return false;
+    }
+    entry.0 += 1;
+    entry.0 > max_per_min
+}
+
+async fn process_message(
+    user_id: &str,
+    text: &str,
+    state: &AppState,
+    hub: &Hub,
+    rate_counters: &mut std::collections::HashMap<String, (u32, std::time::Instant)>,
+) {
     let envelope: Envelope = match serde_json::from_str(text) {
         Ok(e) => e,
         Err(e) => {
@@ -104,6 +130,11 @@ async fn process_message(user_id: &str, text: &str, state: &AppState, hub: &Hub)
             return;
         }
     };
+
+    if rate_limited(rate_counters, &envelope.msg_type) {
+        tracing::warn!(user_id = %user_id, msg_type = %envelope.msg_type, "rate limited");
+        return;
+    }
 
     match envelope.msg_type.as_str() {
         "location.update" => handle_location_update(user_id, &envelope, state, hub).await,
@@ -285,6 +316,15 @@ async fn handle_location_nudge(user_id: &str, env: &Envelope, state: &AppState, 
         Some(v) => v.as_str(),
         None => return,
     };
+
+    // Verify share relationship before allowing nudge
+    let has_share = db::shares::are_sharing(&state.pool, user_id, target)
+        .await
+        .unwrap_or(false);
+    if !has_share {
+        tracing::warn!(requester = %user_id, target = %target, "nudge rejected: no active share");
+        return;
+    }
 
     // Check if target is federated
     let is_federated = target.contains('@')

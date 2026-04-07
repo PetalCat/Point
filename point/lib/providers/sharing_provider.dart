@@ -51,10 +51,14 @@ class SharingProvider extends ChangeNotifier {
       loadAll();
     }
     if (type == 'share.request') {
+      final fromId = msg['from_user_id'] as String? ?? '';
+      final displayName = msg['display_name'] as String? ?? fromId.split('@').first;
+      final isFederated = fromId.contains('@') && fromId.split('@').length > 1 && fromId.split('@')[1].contains('.');
       NotificationService.show(
         title: 'Share Request',
-        body:
-            '${msg['from_user_id']?.split('@').first} wants to share with you',
+        body: isFederated
+            ? '$displayName (${fromId.split('@').last}) wants to share'
+            : '$displayName wants to share with you',
       );
     }
     // Zone consent WS events
@@ -64,10 +68,11 @@ class SharingProvider extends ChangeNotifier {
       loadAll();
     }
     if (type == 'zone.consent_request') {
+      final fromId = msg['from_user_id'] as String? ?? '';
+      final displayName = msg['display_name'] as String? ?? fromId.split('@').first;
       NotificationService.show(
         title: 'Zone Consent Request',
-        body:
-            '${msg['from_user_id']?.split('@').first} wants their zones to track your location',
+        body: '$displayName wants their zones to track your location',
       );
     }
   }

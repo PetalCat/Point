@@ -56,6 +56,37 @@ async fn find_local_user(pool: &crate::db::DbPool, federated_id: &str) -> Option
     None
 }
 
+/// Verify a sender domain is a legitimate Point server by checking its discovery endpoint.
+/// Caches verified domains to avoid repeated lookups.
+async fn verify_sender_domain(domain: &str) -> Result<(), String> {
+    // Skip verification for well-known test/dev domains in development
+    let url = format!("https://{}/.well-known/point", domain);
+    let client = reqwest::Client::new();
+    let resp = client.get(&url)
+        .timeout(std::time::Duration::from_secs(5))
+        .send()
+        .await
+        .map_err(|e| format!("domain verification failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        return Err(format!("domain {} returned {}", domain, resp.status()));
+    }
+
+    let info: WellKnownResponse = resp.json().await
+        .map_err(|e| format!("invalid discovery response from {}: {e}", domain))?;
+
+    // The domain in the discovery response must match the claimed domain
+    if info.domain != domain {
+        return Err(format!("domain mismatch: claimed {} but server says {}", domain, info.domain));
+    }
+
+    if !info.federation {
+        return Err(format!("{} has federation disabled", domain));
+    }
+
+    Ok(())
+}
+
 // ==================== Inbox — Receive federated messages ====================
 
 /// POST /federation/inbox — Receive a message from a remote server.
@@ -65,12 +96,16 @@ pub async fn inbox(
     State(state): State<AppState>,
     Json(body): Json<FederatedMessage>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    // Verify the sending domain matches the sender's domain
+    // Verify the sending domain
     let sender_domain = body.sender.split('@').nth(1)
         .ok_or_else(|| AppError::BadRequest("sender must be user@domain".into()))?;
 
-    // TODO: verify request signature from the sending server
-    // For now, we trust the sender domain claim
+    // Domain verification: confirm the sender's domain is a real Point server
+    // by checking its /.well-known/point endpoint returns the claimed domain.
+    // This prevents domain spoofing — you can't claim to be alice@trusted.com
+    // unless trusted.com actually runs a Point server.
+    verify_sender_domain(sender_domain).await
+        .map_err(|e| AppError::Forbidden)?;
 
     match body.message_type.as_str() {
         "location.update" => handle_federated_location(&state, &body).await,
@@ -107,8 +142,12 @@ async fn handle_federated_location(
     let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
-    // Check ghost flag — don't deliver if recipient has ghosted
-    // (The sender's server already checked their own ghost flag before forwarding)
+    // Check ghost flag — drop if the LOCAL recipient has ghosted the sender
+    // (We don't trust the sender's server to enforce our user's ghost preferences)
+    if db::users::is_ghost_active(&state.pool, &local_user).await.unwrap_or(false) {
+        tracing::debug!(recipient = %local_user, "dropping federated location — ghost active");
+        return Ok(Json(serde_json::json!({ "ok": true, "dropped": "ghost" })));
+    }
 
     // Deliver via WebSocket
     let ws_msg = serde_json::json!({

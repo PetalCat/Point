@@ -924,6 +924,41 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
+        // Connection status indicator
+        ValueListenableBuilder<bool>(
+          valueListenable: context.read<WsService>().connectionState,
+          builder: (context, connected, _) {
+            if (connected) return const SizedBox.shrink();
+            return Positioned(
+              top: 56,
+              left: 0,
+              right: 0,
+              child: Center(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                  decoration: BoxDecoration(
+                    color: PointColors.danger.withValues(alpha: 0.9),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      SizedBox(
+                        width: 10, height: 10,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 1.5, color: Colors.white,
+                        ),
+                      ),
+                      SizedBox(width: 6),
+                      Text('Reconnecting...',
+                        style: TextStyle(fontSize: 10, fontWeight: FontWeight.w700, color: Colors.white)),
+                    ],
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
         // Drawer
         DraggableScrollableSheet(
           initialChildSize: 0.35,
