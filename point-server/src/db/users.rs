@@ -90,6 +90,19 @@ pub async fn get_fcm_tokens(pool: &DbPool, user_id: &str) -> Result<Vec<String>,
     Ok(rows.into_iter().map(|r| r.get("token")).collect())
 }
 
+/// Ensure a shadow user record exists for a federated user.
+/// This allows foreign keys to work for share_requests, user_shares, etc.
+pub async fn ensure_federated_user(pool: &DbPool, user_id: &str) -> Result<(), sqlx::Error> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO users (id, display_name, password_hash, is_federated) VALUES (?, ?, '', TRUE)",
+    )
+    .bind(user_id)
+    .bind(user_id.split('@').next().unwrap_or(user_id))
+    .execute(pool)
+    .await?;
+    Ok(())
+}
+
 pub async fn set_ghost_flag(pool: &DbPool, user_id: &str, ghosted: bool) -> Result<(), sqlx::Error> {
     sqlx::query("UPDATE users SET ghost_active = ? WHERE id = ?")
         .bind(ghosted).bind(user_id).execute(pool).await?;

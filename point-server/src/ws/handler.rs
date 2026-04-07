@@ -216,7 +216,11 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
 
             if is_federated {
                 // Forward via federation
-                let sender = format!("{}@{}", user_id, state.config.domain);
+                let sender = if user_id.contains('@') {
+                    user_id.to_string()
+                } else {
+                    format!("{}@{}", user_id, state.config.domain)
+                };
                 let msg = serde_json::json!({
                     "sender": sender,
                     "recipient": recipient_id,

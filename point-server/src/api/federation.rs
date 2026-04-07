@@ -40,6 +40,22 @@ pub struct FederationEndpoints {
     pub keys: String,
 }
 
+/// Find a local user by their federated address (user@domain).
+/// Tries the full address first, then just the username part.
+async fn find_local_user(pool: &crate::db::DbPool, federated_id: &str) -> Option<String> {
+    // Try full address first (user@domain)
+    if let Ok(Some(_)) = db::users::get_user_by_id(pool, federated_id).await {
+        return Some(federated_id.to_string());
+    }
+    // Try just the username part
+    if let Some(username) = federated_id.split('@').next() {
+        if let Ok(Some(_)) = db::users::get_user_by_id(pool, username).await {
+            return Some(username.to_string());
+        }
+    }
+    None
+}
+
 // ==================== Inbox — Receive federated messages ====================
 
 /// POST /federation/inbox — Receive a message from a remote server.
@@ -87,12 +103,7 @@ async fn handle_federated_location(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let local_user = msg.recipient.split('@').next()
-        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
-
-    // Verify the recipient is a local user
-    db::users::get_user_by_id(&state.pool, local_user).await
-        .map_err(|_| AppError::NotFound("recipient not found".into()))?
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
     // Check ghost flag — don't deliver if recipient has ghosted
@@ -109,7 +120,7 @@ async fn handle_federated_location(
         "timestamp": msg.timestamp,
         "federated": true,
     });
-    state.hub.send_to_user(local_user, &ws_msg.to_string().into_bytes());
+    state.hub.send_to_user(&local_user, &ws_msg.to_string().into_bytes());
 
     tracing::info!(
         sender = %msg.sender,
@@ -125,16 +136,19 @@ async fn handle_federated_share_request(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let local_user = msg.recipient.split('@').next()
-        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
+    // The recipient may be stored with or without @domain — try both
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
+        .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
-    // Store as a pending share request from a federated user
+    // Ensure shadow user exists for the federated sender
+    db::users::ensure_federated_user(&state.pool, &msg.sender).await?;
+
     let id = uuid::Uuid::new_v4().to_string();
     db::shares::create_request(
         &state.pool,
         &id,
         &msg.sender, // full user@domain as from_user_id
-        local_user,
+        &local_user,
     ).await?;
 
     // Notify via WebSocket
@@ -143,7 +157,7 @@ async fn handle_federated_share_request(
         "from_user_id": msg.sender,
         "federated": true,
     });
-    state.hub.send_to_user(local_user, &ws_msg.to_string().into_bytes());
+    state.hub.send_to_user(&local_user, &ws_msg.to_string().into_bytes());
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -153,11 +167,14 @@ async fn handle_federated_share_accept(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let local_user = msg.recipient.split('@').next()
-        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
+        .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
+
+    // Ensure shadow user exists for the federated sender
+    db::users::ensure_federated_user(&state.pool, &msg.sender).await?;
 
     // Create the bidirectional share
-    let (user_a, user_b) = if local_user < msg.sender.as_str() {
+    let (user_a, user_b) = if local_user.as_str() < msg.sender.as_str() {
         (local_user.to_string(), msg.sender.clone())
     } else {
         (msg.sender.clone(), local_user.to_string())
@@ -173,7 +190,7 @@ async fn handle_federated_share_accept(
         "user_id": msg.sender,
         "federated": true,
     });
-    state.hub.send_to_user(local_user, &ws_msg.to_string().into_bytes());
+    state.hub.send_to_user(&local_user, &ws_msg.to_string().into_bytes());
 
     Ok(Json(serde_json::json!({ "ok": true })))
 }
@@ -183,8 +200,8 @@ async fn handle_federated_mls(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let local_user = msg.recipient.split('@').next()
-        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
+        .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
     // Relay the MLS message via WebSocket
     let ws_msg = serde_json::json!({
@@ -195,7 +212,7 @@ async fn handle_federated_mls(
         "payload": msg.payload.get("payload").and_then(|v| v.as_str()).unwrap_or(""),
         "federated": true,
     });
-    state.hub.send_to_user(local_user, &ws_msg.to_string().into_bytes());
+    state.hub.send_to_user(&local_user, &ws_msg.to_string().into_bytes());
 
     // Also store as pending MLS message in case recipient is offline
     if let (Some(group_id), Some(payload)) = (
@@ -212,7 +229,7 @@ async fn handle_federated_mls(
         let _ = db::mls::store_mls_message(
             &state.pool,
             &id,
-            local_user,
+            &local_user,
             mls_type,
             group_id,
             &msg.sender,
@@ -228,10 +245,10 @@ async fn handle_federated_key_request(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    let local_user = msg.recipient.split('@').next()
-        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
+        .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
-    let packages = db::mls::get_key_packages(&state.pool, local_user).await?;
+    let packages = db::mls::get_key_packages(&state.pool, &local_user).await?;
     let engine = base64::engine::general_purpose::STANDARD;
 
     let kps: Vec<String> = packages.into_iter()
@@ -258,7 +275,12 @@ pub async fn send_federated(
         return Err(AppError::BadRequest("recipient is on this server".into()));
     }
 
-    let sender = format!("{}@{}", user.user_id, state.config.domain);
+    // user_id already includes @domain from registration
+    let sender = if user.user_id.contains('@') {
+        user.user_id.clone()
+    } else {
+        format!("{}@{}", user.user_id, state.config.domain)
+    };
 
     let msg = FederatedMessage {
         sender,

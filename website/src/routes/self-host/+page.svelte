@@ -64,7 +64,7 @@
       - <span class="t-str">point-data:/data</span>
     <span class="t-key">environment</span>:
       - <span class="t-val">POINT_DOMAIN=point.example.com</span>
-      - <span class="t-val">POINT_FEDERATION=true</span> <span class="t-comment"># planned</span>
+      - <span class="t-val">POINT_FEDERATION=true</span> <span class="t-comment"># enables cross-server sharing</span>
     <span class="t-key">restart</span>: <span class="t-str">unless-stopped</span>
 
 <span class="t-key">volumes</span>:
@@ -92,7 +92,7 @@
 			<div class="hf-grid">
 				{#each [
 					{ title: 'Zero-Knowledge', desc: 'The server never decrypts location data. It\'s encrypted at rest and in transit.', icon: '🧊' },
-					{ title: 'Federation (planned)', desc: 'Connect your instance to others. Share across servers without centralizing data. Coming soon.', icon: '🌐' },
+					{ title: 'Federation', desc: 'Connect your instance to others. Share across servers without centralizing data. Users are addressed as user@yourdomain.', icon: '🌐' },
 					{ title: 'Low Resources', desc: 'Runs on a Raspberry Pi. Minimal CPU, RAM, and storage requirements.', icon: '⚡' },
 					{ title: 'Auto Updates', desc: 'Use Watchtower or similar to keep your server automatically updated.', icon: '🔄' },
 					{ title: 'Backups', desc: 'Simple volume-based backups. Your data is a single SQLite file.', icon: '💾' },
