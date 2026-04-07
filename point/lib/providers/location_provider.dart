@@ -161,7 +161,7 @@ class LocationProvider extends ChangeNotifier {
 
   TrackingMode get trackingMode => _locationService.currentMode;
 
-  Future<void> startSharing({TrackingMode mode = TrackingMode.normal}) async {
+  Future<void> startSharing({TrackingMode mode = TrackingMode.adaptive}) async {
     try {
       final granted = await _locationService.requestPermission();
       if (!granted) return;

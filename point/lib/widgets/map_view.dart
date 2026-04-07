@@ -45,7 +45,7 @@ class MapViewState extends State<MapView> {
         _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
       }
     } else {
-      location.setTrackingMode(TrackingMode.normal);
+      location.setTrackingMode(TrackingMode.adaptive);
     }
   }
 
