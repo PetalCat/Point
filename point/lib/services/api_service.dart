@@ -231,11 +231,24 @@ class ApiService {
   // Shares
 
   Future<Map<String, dynamic>> sendShareRequest(String toUserId) async {
+    if (_isFederated(toUserId)) {
+      // Federated share request — route through federation endpoint
+      await sendFederated(toUserId, 'share.request', {});
+      return {'ok': true, 'federated': true};
+    }
     return await _request(
       'POST',
       '/api/shares/request',
       body: {'to_user_id': toUserId},
     );
+  }
+
+  /// Check if a user ID is on a remote server.
+  bool _isFederated(String userId) {
+    if (!userId.contains('@')) return false;
+    final domain = userId.split('@').last;
+    final myDomain = Uri.parse(AppConfig.serverUrl).host;
+    return domain != myDomain && domain.contains('.');
   }
 
   Future<List<Map<String, dynamic>>> listShares() async {
@@ -489,6 +502,17 @@ class ApiService {
   }
 
   Future<List<String>> fetchKeyPackages(String userId) async {
+    if (_isFederated(userId)) {
+      // Fetch key packages from the remote server via federation
+      final result = await _request('POST', '/api/federation/send', body: {
+        'recipient': userId,
+        'message_type': 'mls.key_request',
+        'payload': {},
+      });
+      // The remote server returns key packages in the response
+      final kps = result['key_packages'] as List?;
+      return kps?.cast<String>() ?? [];
+    }
     final url = Uri.parse('${AppConfig.serverUrl}/api/mls/keys/$userId');
     final response = await http.get(url, headers: _headers);
     if (response.statusCode != 200) {
@@ -499,6 +523,13 @@ class ApiService {
   }
 
   Future<void> sendMlsWelcome(String recipientId, String groupId, String payloadBase64) async {
+    if (_isFederated(recipientId)) {
+      await sendFederated(recipientId, 'mls.welcome', {
+        'group_id': groupId,
+        'payload': payloadBase64,
+      });
+      return;
+    }
     await _request('POST', '/api/mls/welcome', body: {
       'recipient_id': recipientId,
       'group_id': groupId,
@@ -506,7 +537,17 @@ class ApiService {
     });
   }
 
-  Future<void> sendMlsCommit(String groupId, String payloadBase64) async {
+  Future<void> sendMlsCommit(String groupId, String payloadBase64, {List<String>? recipientIds}) async {
+    // If any recipients are federated, send to them individually
+    if (recipientIds != null) {
+      for (final rid in recipientIds.where((r) => _isFederated(r))) {
+        await sendFederated(rid, 'mls.commit', {
+          'group_id': groupId,
+          'payload': payloadBase64,
+        });
+      }
+    }
+    // Always send to local server for local members
     await _request('POST', '/api/mls/commit', body: {
       'group_id': groupId,
       'payload': payloadBase64,

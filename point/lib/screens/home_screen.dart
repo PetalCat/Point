@@ -1820,11 +1820,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   fontWeight: FontWeight.w600,
                 ),
                 decoration: InputDecoration(
-                  hintText: 'username',
+                  hintText: 'username or user@server',
                   suffixText: '@$domain',
                   suffixStyle: const TextStyle(
                     color: PointColors.textSecondary,
                     fontSize: 14,
+                  ),
+                  helperText: 'For other servers: user@theirserver.com',
+                  helperStyle: TextStyle(
+                    fontSize: 10,
+                    color: context.tertiaryText,
                   ),
                   filled: true,
                   fillColor: context.subtleBg,

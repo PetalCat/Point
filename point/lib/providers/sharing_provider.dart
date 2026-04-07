@@ -111,6 +111,16 @@ class SharingProvider extends ChangeNotifier {
       final otherUserId = request['from_user_id'] as String?;
 
       await _api.acceptRequest(requestId);
+
+      // If the requester is federated, notify their server of acceptance
+      if (otherUserId != null && otherUserId.contains('@') && _myUserId != null) {
+        try {
+          await _api.sendFederated(otherUserId, 'share.accept', {});
+        } catch (e) {
+          debugPrint('[Sharing] Federation accept notify failed: $e');
+        }
+      }
+
       await loadAll();
 
       // Set up MLS pairwise group for direct sharing

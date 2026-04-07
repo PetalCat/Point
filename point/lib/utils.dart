@@ -20,6 +20,29 @@ String formatTimeAgo(int secondsAgo) {
   return '${secondsAgo ~/ 86400}d ago';
 }
 
+/// Extract display name from a user ID (local or federated).
+/// "alice" → "alice"
+/// "alice@point.petalcat.dev" → "alice"
+String displayName(String userId) {
+  return userId.split('@').first;
+}
+
+/// Extract the domain from a federated user ID, or null if local.
+String? userDomain(String userId) {
+  if (!userId.contains('@')) return null;
+  final parts = userId.split('@');
+  if (parts.length < 2 || !parts[1].contains('.')) return null;
+  return parts[1];
+}
+
+/// Check if a user ID is federated (from a remote server).
+bool isFederatedUser(String userId, {String? localDomain}) {
+  final domain = userDomain(userId);
+  if (domain == null) return false;
+  if (localDomain != null) return domain != localDomain;
+  return true;
+}
+
 String? speedLabel(double? speedMps) {
   if (speedMps == null || speedMps < 0.5) return null;
   final mph = (speedMps * 2.237).round();

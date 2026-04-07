@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../providers/location_provider.dart';
 import '../theme.dart';
+import '../utils.dart' as utils;
 
 class PersonRow extends StatelessWidget {
   final PersonLocation person;
@@ -8,7 +9,9 @@ class PersonRow extends StatelessWidget {
   const PersonRow({super.key, required this.person});
 
   Color get _color => PointColors.colorForUser(person.userId);
-  String get _name => person.userId.split('@').first;
+  String get _name => utils.displayName(person.userId);
+  String? get _domain => utils.userDomain(person.userId);
+  bool get _isFederated => _domain != null;
   String get _initial => _name.isNotEmpty ? _name[0].toUpperCase() : '?';
   // Timestamp could be seconds or milliseconds — normalize to seconds
   int get _timestampSec => person.timestamp > 9999999999
@@ -120,6 +123,25 @@ class PersonRow extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                         ),
                       ),
+                      if (_isFederated) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00D4FF).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Text(
+                            _domain!,
+                            style: const TextStyle(
+                              fontSize: 8,
+                              fontWeight: FontWeight.w700,
+                              color: Color(0xFF00D4FF),
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                        ),
+                      ],
                       const SizedBox(width: 5),
                       _badge(),
                     ],
@@ -197,6 +219,10 @@ class PersonRow extends StatelessWidget {
       String s when s.contains('e2e') || s == 'gps' => (
         'E2E',
         PointColors.online,
+      ),
+      String s when s.contains('federated') => (
+        'FED',
+        const Color(0xFF00D4FF),
       ),
       String s when s.contains('find') || s.contains('apple') => (
         'FIND MY',

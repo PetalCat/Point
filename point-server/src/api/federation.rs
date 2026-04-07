@@ -62,6 +62,7 @@ pub async fn inbox(
         "share.accept" => handle_federated_share_accept(&state, &body).await,
         "mls.welcome" => handle_federated_mls(&state, &body).await,
         "mls.commit" => handle_federated_mls(&state, &body).await,
+        "mls.key_request" => handle_federated_key_request(&state, &body).await,
         _ => Err(AppError::BadRequest(format!("unknown message type: {}", body.message_type))),
     }
 }
@@ -222,6 +223,24 @@ async fn handle_federated_mls(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
+/// Handle a federated key package request — return key packages for a local user.
+async fn handle_federated_key_request(
+    state: &AppState,
+    msg: &FederatedMessage,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let local_user = msg.recipient.split('@').next()
+        .ok_or_else(|| AppError::BadRequest("invalid recipient".into()))?;
+
+    let packages = db::mls::get_key_packages(&state.pool, local_user).await?;
+    let engine = base64::engine::general_purpose::STANDARD;
+
+    let kps: Vec<String> = packages.into_iter()
+        .map(|kp| base64::Engine::encode(&engine, &kp.key_package))
+        .collect();
+
+    Ok(Json(serde_json::json!({ "ok": true, "key_packages": kps })))
+}
+
 // ==================== Outbound federation ====================
 
 /// POST /api/federation/send — Send a message to a user on a remote server.
@@ -264,9 +283,13 @@ pub async fn send_federated(
 
     if !resp.status().is_success() {
         let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(AppError::BadRequest(format!("remote server returned {status}: {body}")));
+        let text = resp.text().await.unwrap_or_default();
+        return Err(AppError::BadRequest(format!("remote server returned {status}: {text}")));
     }
+
+    // Return the remote server's response (may contain key packages, etc.)
+    let remote_response: serde_json::Value = resp.json().await
+        .unwrap_or(serde_json::json!({ "ok": true }));
 
     tracing::info!(
         recipient = %body.recipient,
@@ -274,7 +297,7 @@ pub async fn send_federated(
         "sent federated message"
     );
 
-    Ok(Json(serde_json::json!({ "ok": true })))
+    Ok(Json(remote_response))
 }
 
 #[derive(Debug, Deserialize)]
