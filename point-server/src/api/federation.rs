@@ -127,6 +127,14 @@ pub async fn inbox(
         tracing::warn!(sender = %sender_domain, "remote server has no public key — accepting with domain verification only");
     }
 
+    // Replay protection: reject messages older than 5 minutes
+    let now = chrono::Utc::now().timestamp();
+    let age = (now - body.timestamp).abs();
+    if age > 300 {
+        tracing::warn!(sender = %sender_domain, age_secs = age, "federation message too old/future — replay rejected");
+        return Err(AppError::BadRequest("message timestamp too old or too far in future".into()));
+    }
+
     match body.message_type.as_str() {
         "location.update" => handle_federated_location(&state, &body).await,
         "share.request" => handle_federated_share_request(&state, &body).await,

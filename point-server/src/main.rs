@@ -51,7 +51,15 @@ async fn main() {
         federation_keys: fed_keys,
     };
 
-    let cors = tower_http::cors::CorsLayer::very_permissive();
+    // CORS: allow the app domain + localhost for dev. NOT very_permissive.
+    let cors = tower_http::cors::CorsLayer::new()
+        .allow_origin([
+            format!("https://{}", config.domain).parse::<axum::http::HeaderValue>().unwrap(),
+            "http://localhost:8080".parse().unwrap(),
+            "http://localhost:3000".parse().unwrap(),
+        ])
+        .allow_methods(tower_http::cors::Any)
+        .allow_headers(tower_http::cors::Any);
     let app = api::router(state).layer(cors);
 
     // Spawn TTL cleanup task that runs every 60 seconds

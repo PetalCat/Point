@@ -29,11 +29,24 @@ pub async fn upload_keys(
     if body.key_packages.is_empty() {
         return Err(AppError::BadRequest("key_packages must not be empty".into()));
     }
+    if body.key_packages.len() > 5 {
+        return Err(AppError::BadRequest("max 5 key packages per upload".into()));
+    }
+
+    // Enforce max 10 stored key packages per user
+    let existing = db::mls::get_key_packages(&state.pool, &user.user_id).await?;
+    if existing.len() >= 10 {
+        return Err(AppError::BadRequest("max 10 key packages stored — old ones must be consumed first".into()));
+    }
 
     let engine = base64::engine::general_purpose::STANDARD;
     let mut stored = 0;
 
     for kp_b64 in &body.key_packages {
+        // Max 2KB per key package
+        if kp_b64.len() > 2048 {
+            return Err(AppError::BadRequest("key package too large (max 2KB)".into()));
+        }
         let bytes = engine
             .decode(kp_b64)
             .map_err(|e| AppError::BadRequest(format!("invalid base64: {e}")))?;

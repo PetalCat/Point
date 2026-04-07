@@ -43,7 +43,7 @@ pub struct Claims {
 
 pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<String, AppError> {
     let exp = chrono::Utc::now()
-        .checked_add_signed(chrono::Duration::days(30))
+        .checked_add_signed(chrono::Duration::days(7))
         .unwrap()
         .timestamp() as usize;
 
@@ -53,8 +53,10 @@ pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<Strin
         exp,
     };
 
+    // Pin to HS256 — prevent algorithm confusion attacks
+    let header = Header::new(jsonwebtoken::Algorithm::HS256);
     encode(
-        &Header::default(),
+        &header,
         &claims,
         &EncodingKey::from_secret(secret.as_bytes()),
     )
@@ -62,10 +64,13 @@ pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<Strin
 }
 
 pub fn verify_token(secret: &str, token: &str) -> Result<Claims, AppError> {
+    // Pin validation to HS256 only — reject any other algorithm
+    let mut validation = Validation::new(jsonwebtoken::Algorithm::HS256);
+    validation.validate_exp = true;
     let data = jsonwebtoken::decode::<Claims>(
         token,
         &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
+        &validation,
     )
     .map_err(|_| AppError::Unauthorized)?;
 
@@ -79,15 +84,25 @@ pub async fn register(
     if req.username.is_empty() || req.password.is_empty() {
         return Err(AppError::BadRequest("username and password required".into()));
     }
+    if req.username.len() < 3 || req.username.len() > 32 {
+        return Err(AppError::BadRequest("username must be 3-32 characters".into()));
+    }
+    if req.password.len() < 8 {
+        return Err(AppError::BadRequest("password must be at least 8 characters".into()));
+    }
+    // Only allow alphanumeric + underscore/hyphen in usernames
+    if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+        return Err(AppError::BadRequest("username may only contain letters, numbers, _ and -".into()));
+    }
 
     let user_id = format!("{}@{}", req.username, state.config.domain);
 
-    // Check if user already exists
+    // Check if user already exists — generic error to prevent enumeration
     if db::users::get_user_by_id(&state.pool, &user_id)
         .await?
         .is_some()
     {
-        return Err(AppError::Conflict("username already taken".into()));
+        return Err(AppError::BadRequest("registration failed".into()));
     }
 
     // First user becomes admin, no invite needed
