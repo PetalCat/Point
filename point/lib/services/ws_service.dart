@@ -107,6 +107,15 @@ class WsService {
     });
   }
 
+  /// Request a fresh location from a specific user.
+  /// Server relays this as a nudge + FCM wake push if they're offline.
+  void requestFreshLocation(String userId) {
+    send({
+      'type': 'location.nudge',
+      'target_user_id': userId,
+    });
+  }
+
   void disconnect() {
     _reconnectTimer?.cancel();
     _subscription?.cancel();

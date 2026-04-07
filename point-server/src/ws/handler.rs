@@ -41,6 +41,9 @@ struct Envelope {
     place_id: Option<String>,
     place_name: Option<String>,
     event: Option<String>,
+
+    // location.nudge fields
+    target_user_id: Option<String>,
 }
 
 /// Drive a single WebSocket connection to completion.
@@ -105,6 +108,7 @@ async fn process_message(user_id: &str, text: &str, state: &AppState, hub: &Hub)
     match envelope.msg_type.as_str() {
         "location.update" => handle_location_update(user_id, &envelope, state, hub).await,
         "presence.update" => handle_presence_update(user_id, &envelope, state, hub).await,
+        "location.nudge" => handle_location_nudge(user_id, &envelope, state, hub).await,
         "location.subscribe" => {
             tracing::info!(user_id = %user_id, "location.subscribe received (no-op for now)");
         }
@@ -272,6 +276,69 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
             tracing::warn!(recipient_type = %other, "unknown recipient_type");
         }
     }
+}
+
+/// Handle a location nudge — request a fresh update from a specific user.
+/// If the target is online, relay via WS. If offline, send FCM wake push.
+async fn handle_location_nudge(user_id: &str, env: &Envelope, state: &AppState, hub: &Hub) {
+    let target = match &env.target_user_id {
+        Some(v) => v.as_str(),
+        None => return,
+    };
+
+    // Check if target is federated
+    let is_federated = target.contains('@')
+        && target.split('@').nth(1).map_or(false, |d| d != state.config.domain);
+
+    if is_federated {
+        // Forward nudge via federation
+        let sender = if user_id.contains('@') {
+            user_id.to_string()
+        } else {
+            format!("{}@{}", user_id, state.config.domain)
+        };
+        let msg = serde_json::json!({
+            "sender": sender,
+            "recipient": target,
+            "message_type": "location.nudge",
+            "payload": {},
+            "timestamp": chrono::Utc::now().timestamp(),
+        });
+        let target_domain = target.split('@').nth(1).unwrap_or("").to_string();
+        tokio::spawn(async move {
+            let url = format!("https://{}/federation/inbox", target_domain);
+            let client = reqwest::Client::new();
+            if let Err(e) = client.post(&url)
+                .json(&msg)
+                .timeout(std::time::Duration::from_secs(10))
+                .send()
+                .await
+            {
+                tracing::error!(error = %e, "federation nudge forward failed");
+            }
+        });
+    } else {
+        // Local delivery
+        let msg = serde_json::json!({
+            "type": "location.nudge",
+            "requester_id": user_id,
+        });
+        hub.send_to_user(target, &msg.to_string().into_bytes());
+
+        // FCM wake push if target is offline
+        if !hub.is_online(target) {
+            if let Some(ref fcm) = state.fcm {
+                let fcm = fcm.clone();
+                let pool = state.pool.clone();
+                let target = target.to_string();
+                tokio::spawn(async move {
+                    fcm.send_wake_push(&pool, &target, "location.nudge").await;
+                });
+            }
+        }
+    }
+
+    tracing::debug!(requester = %user_id, target = %target, "location nudge");
 }
 
 async fn handle_bridge_register(user_id: &str, env: &Envelope, state: &AppState, hub: &Hub) {

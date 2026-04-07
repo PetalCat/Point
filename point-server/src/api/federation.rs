@@ -79,6 +79,7 @@ pub async fn inbox(
         "mls.welcome" => handle_federated_mls(&state, &body).await,
         "mls.commit" => handle_federated_mls(&state, &body).await,
         "mls.key_request" => handle_federated_key_request(&state, &body).await,
+        "location.nudge" => handle_federated_nudge(&state, &body).await,
         _ => Err(AppError::BadRequest(format!("unknown message type: {}", body.message_type))),
     }
 }
@@ -256,6 +257,36 @@ async fn handle_federated_key_request(
         .collect();
 
     Ok(Json(serde_json::json!({ "ok": true, "key_packages": kps })))
+}
+
+/// Handle a federated nudge — relay to local user to request fresh location.
+async fn handle_federated_nudge(
+    state: &AppState,
+    msg: &FederatedMessage,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let local_user = find_local_user(&state.pool, &msg.recipient).await
+        .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
+
+    let ws_msg = serde_json::json!({
+        "type": "location.nudge",
+        "requester_id": msg.sender,
+        "federated": true,
+    });
+    state.hub.send_to_user(&local_user, &ws_msg.to_string().into_bytes());
+
+    // FCM wake if offline
+    if !state.hub.is_online(&local_user) {
+        if let Some(ref fcm) = state.fcm {
+            let fcm = fcm.clone();
+            let pool = state.pool.clone();
+            let uid = local_user.clone();
+            tokio::spawn(async move {
+                fcm.send_wake_push(&pool, &uid, "location.nudge").await;
+            });
+        }
+    }
+
+    Ok(Json(serde_json::json!({ "ok": true })))
 }
 
 // ==================== Outbound federation ====================

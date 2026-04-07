@@ -35,17 +35,22 @@ class MapViewState extends State<MapView> {
   String? _followingUserId;
 
   void followUser(String? userId) {
-    setState(() => _followingUserId = userId);
-    // Switch to realtime tracking when following, normal when not
     final location = context.read<LocationProvider>();
+    // Stop viewing previous person
+    if (_followingUserId != null && _followingUserId != userId) {
+      location.stopViewing();
+    }
+    setState(() => _followingUserId = userId);
     if (userId != null) {
       location.setTrackingMode(TrackingMode.realtime);
+      location.startViewing(userId); // nudge for fresh location
       final target = _targetPositions[userId];
       if (target != null && _controller != null) {
         _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
       }
     } else {
       location.setTrackingMode(TrackingMode.adaptive);
+      location.stopViewing();
     }
   }
 

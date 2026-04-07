@@ -94,6 +94,12 @@ class LocationProvider extends ChangeNotifier {
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
   StreamSubscription<Position>? _positionSubscription;
 
+  // Nudge system — request fresh location when actively viewing someone
+  String? _viewingUserId;
+  Timer? _nudgeTimer;
+  final Map<String, DateTime> _lastNudge = {};
+  DateTime? _lastLocationSent;
+
   final _geofenceEventsController =
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get geofenceEvents =>
@@ -104,6 +110,7 @@ class LocationProvider extends ChangeNotifier {
   List<Map<String, dynamic>> get places => List.unmodifiable(_places);
   Position? get myPosition => _myPosition;
   bool get isSharing => _isSharing;
+  DateTime? get lastLocationSent => _lastLocationSent;
   bool get isGhostMode => _ghostMode;
 
   void setMyUserId(String id) {
@@ -153,6 +160,69 @@ class LocationProvider extends ChangeNotifier {
 
   void setPlaces(List<Map<String, dynamic>> places) {
     _places = List.from(places);
+  }
+
+  /// Start actively viewing a person — triggers nudge for fresh location.
+  /// Continues nudging periodically while viewing, slowing down if they're still.
+  void startViewing(String userId) {
+    _viewingUserId = userId;
+    _nudgeTimer?.cancel();
+    // Send initial nudge
+    _sendNudge(userId);
+    // Schedule recurring nudges
+    _scheduleNextNudge();
+  }
+
+  /// Stop viewing — cancel nudge timer.
+  void stopViewing() {
+    _viewingUserId = null;
+    _nudgeTimer?.cancel();
+    _nudgeTimer = null;
+  }
+
+  void _sendNudge(String userId) {
+    // Debounce: min 15 seconds between nudges to the same person
+    final lastTime = _lastNudge[userId];
+    if (lastTime != null && DateTime.now().difference(lastTime).inSeconds < 15) {
+      return;
+    }
+    _wsService.requestFreshLocation(userId);
+    _lastNudge[userId] = DateTime.now();
+    debugPrint('[Location] Nudged $userId for fresh location');
+  }
+
+  void _scheduleNextNudge() {
+    if (_viewingUserId == null) return;
+    final userId = _viewingUserId!;
+    final person = _people[userId];
+
+    // Adaptive interval based on whether the person is moving
+    Duration interval;
+    if (person == null) {
+      interval = const Duration(seconds: 15); // unknown state, nudge soon
+    } else {
+      final speed = person.speed ?? 0;
+      final secSinceUpdate = DateTime.now().millisecondsSinceEpoch ~/ 1000 -
+          (person.timestamp > 9999999999 ? person.timestamp ~/ 1000 : person.timestamp);
+
+      if (speed > 1.0) {
+        // Moving — nudge every 15s
+        interval = const Duration(seconds: 15);
+      } else if (secSinceUpdate < 120) {
+        // Recently updated but still — nudge every 45s
+        interval = const Duration(seconds: 45);
+      } else {
+        // Stale and still — nudge every 2 min
+        interval = const Duration(minutes: 2);
+      }
+    }
+
+    _nudgeTimer = Timer(interval, () {
+      if (_viewingUserId == userId) {
+        _sendNudge(userId);
+        _scheduleNextNudge(); // reschedule
+      }
+    });
   }
 
   void setZoneConsentedUsers(List<String> userIds) {
@@ -269,6 +339,7 @@ class LocationProvider extends ChangeNotifier {
           sourceType: 'gps',
           timestamp: locationData.timestamp,
         );
+        _lastLocationSent = DateTime.now();
       } catch (e) {
         debugPrint('[Location] Encrypt failed for group $groupId: $e');
       }
@@ -462,6 +533,17 @@ class LocationProvider extends ChangeNotifier {
       _handleLocationBroadcast(message);
     } else if (type == 'presence.broadcast' || type == 'presence.update') {
       _handlePresenceBroadcast(message);
+    } else if (type == 'location.nudge') {
+      // Someone is viewing us — send a fresh position immediately
+      _handleNudge();
+    }
+  }
+
+  /// Respond to a nudge by sending our current position immediately.
+  void _handleNudge() {
+    if (_myPosition != null && _isSharing && !_ghostMode) {
+      debugPrint('[Location] Received nudge — sending fresh position');
+      _onPosition(_myPosition!);
     }
   }
 
