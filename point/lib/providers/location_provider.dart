@@ -159,18 +159,26 @@ class LocationProvider extends ChangeNotifier {
     _zoneConsentedUsers = Set.from(userIds);
   }
 
-  Future<void> startSharing() async {
+  TrackingMode get trackingMode => _locationService.currentMode;
+
+  Future<void> startSharing({TrackingMode mode = TrackingMode.normal}) async {
     try {
       final granted = await _locationService.requestPermission();
       if (!granted) return;
 
-      _locationService.startTracking();
+      _locationService.startTracking(mode: mode);
       _positionSubscription = _locationService.positions.listen(_onPosition);
       _isSharing = true;
       notifyListeners();
     } catch (_) {
       // Geolocation not available
     }
+  }
+
+  /// Switch tracking frequency (e.g. when following someone → realtime).
+  void setTrackingMode(TrackingMode mode) {
+    _locationService.setMode(mode);
+    notifyListeners();
   }
 
   void stopSharing() {
@@ -190,8 +198,8 @@ class LocationProvider extends ChangeNotifier {
       _positionSubscription?.cancel();
       _positionSubscription = null;
     } else if (_isSharing) {
-      // Resume the location subscription
-      _locationService.startTracking();
+      // Resume with current tracking mode
+      _locationService.startTracking(mode: _locationService.currentMode);
       _positionSubscription = _locationService.positions.listen(_onPosition);
     }
     notifyListeners();

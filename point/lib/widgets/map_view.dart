@@ -7,6 +7,7 @@ import 'package:provider/provider.dart';
 
 import '../providers/auth_provider.dart';
 import '../providers/location_provider.dart';
+import '../services/location_service.dart';
 import '../theme.dart';
 
 class MapView extends StatefulWidget {
@@ -35,12 +36,16 @@ class MapViewState extends State<MapView> {
 
   void followUser(String? userId) {
     setState(() => _followingUserId = userId);
-    // Immediately pan to the person when first selecting
+    // Switch to realtime tracking when following, normal when not
+    final location = context.read<LocationProvider>();
     if (userId != null) {
+      location.setTrackingMode(TrackingMode.realtime);
       final target = _targetPositions[userId];
       if (target != null && _controller != null) {
         _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
       }
+    } else {
+      location.setTrackingMode(TrackingMode.normal);
     }
   }
 
