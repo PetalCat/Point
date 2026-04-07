@@ -144,7 +144,7 @@ async fn process_message(
             tracing::info!(user_id = %user_id, "location.subscribe received (no-op for now)");
         }
         "bridge.register" => handle_bridge_register(user_id, &envelope, state, hub).await,
-        "bridge.heartbeat" => handle_bridge_heartbeat(&envelope, state).await,
+        "bridge.heartbeat" => handle_bridge_heartbeat(user_id, &envelope, state).await,
         "item.location" => handle_item_location(user_id, &envelope, state, hub).await,
         "place.triggered" => handle_place_triggered(user_id, &envelope, state, hub).await,
         other => {
@@ -266,13 +266,16 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
                     },
                     "timestamp": timestamp,
                 });
-                let state_clone = state.clone();
+                let fed_keys = state.federation_keys.clone();
                 let recipient = recipient_id.to_string();
                 tokio::spawn(async move {
                     if let Some(domain) = recipient.split('@').nth(1) {
                         let url = format!("https://{}/federation/inbox", domain);
+                        let body_bytes = serde_json::to_vec(&msg).unwrap_or_default();
+                        let signature = fed_keys.sign(&body_bytes);
                         let client = reqwest::Client::new();
                         if let Err(e) = client.post(&url)
+                            .header("X-Point-Signature", &signature)
                             .json(&msg)
                             .timeout(std::time::Duration::from_secs(10))
                             .send()
@@ -345,10 +348,14 @@ async fn handle_location_nudge(user_id: &str, env: &Envelope, state: &AppState, 
             "timestamp": chrono::Utc::now().timestamp(),
         });
         let target_domain = target.split('@').nth(1).unwrap_or("").to_string();
+        let fed_keys = state.federation_keys.clone();
         tokio::spawn(async move {
             let url = format!("https://{}/federation/inbox", target_domain);
+            let body_bytes = serde_json::to_vec(&msg).unwrap_or_default();
+            let signature = fed_keys.sign(&body_bytes);
             let client = reqwest::Client::new();
             if let Err(e) = client.post(&url)
+                .header("X-Point-Signature", &signature)
                 .json(&msg)
                 .timeout(std::time::Duration::from_secs(10))
                 .send()
@@ -406,7 +413,7 @@ async fn handle_bridge_register(user_id: &str, env: &Envelope, state: &AppState,
     }
 }
 
-async fn handle_bridge_heartbeat(env: &Envelope, state: &AppState) {
+async fn handle_bridge_heartbeat(user_id: &str, env: &Envelope, state: &AppState) {
     let bridge_id = match &env.bridge_id {
         Some(v) => v.as_str(),
         None => return,
@@ -417,10 +424,24 @@ async fn handle_bridge_heartbeat(env: &Envelope, state: &AppState) {
     };
     let error_message = env.error_message.as_deref();
 
-    if let Err(e) =
-        db::bridges::update_heartbeat(&state.pool, bridge_id, status, error_message).await
-    {
-        tracing::error!(error = %e, "failed to update bridge heartbeat");
+    // Verify this user owns the bridge before allowing heartbeat update
+    match db::bridges::get_bridge(&state.pool, bridge_id).await {
+        Ok(Some(bridge)) if bridge.user_id == user_id => {
+            if let Err(e) =
+                db::bridges::update_heartbeat(&state.pool, bridge_id, status, error_message).await
+            {
+                tracing::error!(error = %e, "failed to update bridge heartbeat");
+            }
+        }
+        Ok(Some(_)) => {
+            tracing::warn!(user = %user_id, bridge = %bridge_id, "bridge heartbeat rejected: not owner");
+        }
+        Ok(None) => {
+            tracing::warn!(bridge = %bridge_id, "bridge heartbeat: bridge not found");
+        }
+        Err(e) => {
+            tracing::error!(error = %e, "bridge ownership check failed");
+        }
     }
 }
 

@@ -59,9 +59,31 @@ async fn find_local_user(pool: &crate::db::DbPool, federated_id: &str) -> Option
     None
 }
 
+/// Check if a domain resolves to a private/internal IP — prevent SSRF.
+fn is_private_domain(domain: &str) -> bool {
+    let blocked = [
+        "localhost", "127.0.0.1", "0.0.0.0", "::1",
+        "169.254.169.254", // cloud metadata
+        "metadata.google.internal",
+    ];
+    if blocked.iter().any(|b| domain == *b) { return true; }
+    // Block any IP address literals
+    if domain.parse::<std::net::IpAddr>().is_ok() { return true; }
+    // Block .local, .internal, .localhost TLDs
+    if domain.ends_with(".local") || domain.ends_with(".internal") || domain.ends_with(".localhost") {
+        return true;
+    }
+    // Must have at least one dot (reject single-label domains)
+    if !domain.contains('.') { return true; }
+    false
+}
+
 /// Discover and verify a remote Point server. Returns the full discovery response
 /// including public key for signature verification.
 async fn discover_server(domain: &str) -> Result<WellKnownResponse, String> {
+    if is_private_domain(domain) {
+        return Err(format!("federation blocked: {} is a private/internal domain", domain));
+    }
     let url = format!("https://{}/.well-known/point", domain);
     let client = reqwest::Client::new();
     let resp = client.get(&url)
@@ -123,8 +145,9 @@ pub async fn inbox(
                 AppError::Forbidden
             })?;
     } else {
-        // Remote server doesn't publish a key — fall back to domain verification only
-        tracing::warn!(sender = %sender_domain, "remote server has no public key — accepting with domain verification only");
+        // Remote server doesn't publish a key — reject
+        tracing::warn!(sender = %sender_domain, "remote server has no public key — rejecting unsigned message");
+        return Err(AppError::BadRequest("federation requires Ed25519 signature — remote server must publish a public key".into()));
     }
 
     // Replay protection: reject messages older than 5 minutes

@@ -10,7 +10,7 @@ services:
       LISTEN: "0.0.0.0:8080"
       DOMAIN: "pointdev.petalcat.dev"
       OPEN_REGISTRATION: "true"
-      JWT_SECRET: "dev-secret-pointdev"
+      JWT_SECRET: "40d7c208fdf796b6f778d851a4350a6f843504121d6b35e1eb6f64153160da79"
     restart: unless-stopped
 
 volumes:

@@ -26,7 +26,7 @@ async fn main() {
     let jwt_secret = config
         .jwt_secret
         .clone()
-        .unwrap_or_else(|| "dev-secret-change-me".to_string());
+        .expect("JWT_SECRET must be set — refusing to start with no secret. Set JWT_SECRET env var.");
 
     let hub = ws::hub::Hub::new();
     let fcm = fcm::FcmService::load("firebase-admin.json");

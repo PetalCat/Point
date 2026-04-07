@@ -1,5 +1,7 @@
+use std::sync::LazyLock;
 use axum::extract::State;
 use axum::Json;
+use dashmap::DashMap;
 use serde::{Deserialize, Serialize};
 
 use argon2::password_hash::rand_core::OsRng;
@@ -9,6 +11,23 @@ use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
 
 use crate::db;
 use crate::error::AppError;
+
+// IP-based rate limiter for auth endpoints: max 10 attempts per minute per username
+static AUTH_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
+    LazyLock::new(DashMap::new);
+
+fn check_auth_rate_limit(key: &str) -> Result<(), AppError> {
+    let mut entry = AUTH_RATE_LIMIT.entry(key.to_string()).or_insert((0, std::time::Instant::now()));
+    if entry.1.elapsed() > std::time::Duration::from_secs(60) {
+        *entry = (1, std::time::Instant::now());
+        return Ok(());
+    }
+    entry.0 += 1;
+    if entry.0 > 10 {
+        return Err(AppError::BadRequest("too many attempts — try again in a minute".into()));
+    }
+    Ok(())
+}
 
 use super::{AppState, AuthUser};
 
@@ -81,6 +100,7 @@ pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    check_auth_rate_limit(&req.username)?;
     if req.username.is_empty() || req.password.is_empty() {
         return Err(AppError::BadRequest("username and password required".into()));
     }
@@ -96,6 +116,19 @@ pub async fn register(
     }
 
     let user_id = format!("{}@{}", req.username, state.config.domain);
+
+    // Sanitize display_name: max 64 chars, strip HTML, normalize whitespace
+    let display_name = req.display_name.trim();
+    if display_name.is_empty() || display_name.len() > 64 {
+        return Err(AppError::BadRequest("display_name must be 1-64 characters".into()));
+    }
+    // Strip anything that looks like HTML
+    let display_name: String = display_name
+        .replace('<', "").replace('>', "").replace('&', "&amp;")
+        // Strip zero-width and invisible unicode characters
+        .chars()
+        .filter(|c| !c.is_control() && *c != '\u{200B}' && *c != '\u{200C}' && *c != '\u{200D}' && *c != '\u{FEFF}')
+        .collect();
 
     // Check if user already exists — generic error to prevent enumeration
     if db::users::get_user_by_id(&state.pool, &user_id)
@@ -134,7 +167,7 @@ pub async fn register(
     let user = db::users::create_user(
         &state.pool,
         &user_id,
-        &req.display_name,
+        &display_name,
         &password_hash,
         is_admin,
     )
@@ -154,6 +187,7 @@ pub async fn login(
     State(state): State<AppState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
+    check_auth_rate_limit(&req.username)?;
     let user_id = format!("{}@{}", req.username, state.config.domain);
 
     let user = db::users::get_user_by_id(&state.pool, &user_id)

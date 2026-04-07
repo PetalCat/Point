@@ -8,7 +8,7 @@ services:
       LISTEN: "0.0.0.0:8080"
       DOMAIN: "point.petalcat.dev"
       OPEN_REGISTRATION: "true"
-      JWT_SECRET: "${JWT_SECRET:-change-me-in-production}"
+      JWT_SECRET: "${JWT_SECRET}"  # REQUIRED — set in .env or environment
     restart: unless-stopped
 
   website:

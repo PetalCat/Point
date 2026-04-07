@@ -14,6 +14,20 @@ pub struct Bridge {
     pub error_message: Option<String>,
 }
 
+pub async fn get_bridge(pool: &DbPool, id: &str) -> Result<Option<Bridge>, sqlx::Error> {
+    let row = sqlx::query("SELECT id, user_id, bridge_type, status, double_puppet, last_heartbeat, error_message FROM bridges WHERE id = ?")
+        .bind(id).fetch_optional(pool).await?;
+    Ok(row.map(|r| Bridge {
+        id: r.get("id"),
+        user_id: r.get("user_id"),
+        bridge_type: r.get("bridge_type"),
+        status: r.get("status"),
+        double_puppet: r.get("double_puppet"),
+        last_heartbeat: r.get("last_heartbeat"),
+        error_message: r.get("error_message"),
+    }))
+}
+
 pub async fn register_bridge(
     pool: &DbPool,
     id: &str,
