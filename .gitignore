@@ -32,3 +32,5 @@ Thumbs.db
 .superpowers/
 docs/superpowers/
 docs/ghost-mode-concepts.html
+point/lib/firebase_options.dart
+point/android/app/google-services.json
