@@ -1,0 +1,11 @@
+services:
+  registry:
+    build: .
+    ports:
+      - "8484:8484"
+    volumes:
+      - registry-data:/data
+    restart: unless-stopped
+
+volumes:
+  registry-data:

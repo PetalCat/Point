@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Point — Download</title>
+<style>
+body { font-family: -apple-system, system-ui, sans-serif; background: #f5f5f5; display: flex; justify-content: center; align-items: center; min-height: 100vh; margin: 0; }
+.card { background: white; border-radius: 20px; padding: 32px; text-align: center; max-width: 320px; box-shadow: 0 4px 20px rgba(0,0,0,0.06); }
+h1 { font-size: 28px; font-weight: 900; color: #3F51FF; }
+p { color: #999; font-size: 14px; margin: 8px 0 24px; }
+a.dl { display: block; background: #3F51FF; color: white; text-decoration: none; padding: 14px; border-radius: 14px; font-weight: 800; font-size: 16px; box-shadow: 0 4px 14px rgba(63,81,255,0.3); }
+.version { font-size: 11px; color: #ccc; margin-top: 16px; }
+</style>
+</head>
+<body>
+<div class="card">
+<h1>Point</h1>
+<p>Location sharing, unified.</p>
+<a class="dl" href="/download/point-android.apk">Download APK</a>
+<div class="version" id="ver"></div>
+</div>
+<script>
+fetch('/version.json').then(function(r){return r.json()}).then(function(d){
+  document.getElementById('ver').textContent='v'+d.version+' \u00b7 '+d.date;
+});
+</script>
+</body>
+</html>
