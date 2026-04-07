@@ -3,6 +3,7 @@ mod config;
 mod db;
 mod error;
 mod fcm;
+mod federation_keys;
 mod ws;
 
 use clap::Parser;
@@ -30,12 +31,24 @@ async fn main() {
     let hub = ws::hub::Hub::new();
     let fcm = fcm::FcmService::load("firebase-admin.json");
 
+    // Load or generate Ed25519 federation keypair
+    let data_dir = config.database_url
+        .strip_prefix("sqlite:")
+        .and_then(|s| s.split('/').rev().nth(1).map(|_| {
+            let path = std::path::Path::new(s.split('?').next().unwrap_or(s));
+            path.parent().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| "/data".to_string())
+        }))
+        .unwrap_or_else(|| "/data".to_string());
+    let fed_keys = std::sync::Arc::new(federation_keys::FederationKeys::load_or_generate(&data_dir));
+    tracing::info!("Federation public key: {}", fed_keys.public_key_hex);
+
     let state = api::AppState {
         pool: pool.clone(),
         config: config.clone(),
         jwt_secret,
         hub,
         fcm,
+        federation_keys: fed_keys,
     };
 
     let cors = tower_http::cors::CorsLayer::very_permissive();

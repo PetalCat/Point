@@ -33,12 +33,16 @@ class WsService {
   void _connect() {
     if (_disposed) return;
 
-    final uri = Uri.parse('${AppConfig.wsUrl}?token=$_token');
+    // Connect without token in URL — auth via first message
+    final uri = Uri.parse(AppConfig.wsUrl);
     _channel = WebSocketChannel.connect(uri);
 
     _isConnected = true;
     connectionState.value = true;
     _reconnectAttempt = 0;
+
+    // Send auth as first message (token never in URL/logs)
+    _channel!.sink.add(jsonEncode({'type': 'auth', 'token': _token}));
 
     _subscription = _channel!.stream.listen(
       (data) {

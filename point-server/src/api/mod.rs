@@ -21,6 +21,7 @@ use crate::config::Config;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::fcm::FcmService;
+use crate::federation_keys::FederationKeys;
 use crate::ws::hub::Hub;
 
 #[derive(Clone)]
@@ -30,6 +31,7 @@ pub struct AppState {
     pub jwt_secret: String,
     pub hub: Hub,
     pub fcm: Option<FcmService>,
+    pub federation_keys: std::sync::Arc<FederationKeys>,
 }
 
 /// Authenticated user extracted from Authorization header.

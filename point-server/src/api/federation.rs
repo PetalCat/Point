@@ -19,6 +19,7 @@ pub async fn well_known(
         domain: state.config.domain.clone(),
         version: env!("CARGO_PKG_VERSION").to_string(),
         federation: true,
+        public_key: Some(state.federation_keys.public_key_hex.clone()),
         endpoints: FederationEndpoints {
             inbox: format!("https://{}/federation/inbox", state.config.domain),
             keys: format!("https://{}/federation/keys", state.config.domain),
@@ -31,6 +32,8 @@ pub struct WellKnownResponse {
     pub domain: String,
     pub version: String,
     pub federation: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
     pub endpoints: FederationEndpoints,
 }
 
@@ -56,10 +59,9 @@ async fn find_local_user(pool: &crate::db::DbPool, federated_id: &str) -> Option
     None
 }
 
-/// Verify a sender domain is a legitimate Point server by checking its discovery endpoint.
-/// Caches verified domains to avoid repeated lookups.
-async fn verify_sender_domain(domain: &str) -> Result<(), String> {
-    // Skip verification for well-known test/dev domains in development
+/// Discover and verify a remote Point server. Returns the full discovery response
+/// including public key for signature verification.
+async fn discover_server(domain: &str) -> Result<WellKnownResponse, String> {
     let url = format!("https://{}/.well-known/point", domain);
     let client = reqwest::Client::new();
     let resp = client.get(&url)
@@ -75,7 +77,6 @@ async fn verify_sender_domain(domain: &str) -> Result<(), String> {
     let info: WellKnownResponse = resp.json().await
         .map_err(|e| format!("invalid discovery response from {}: {e}", domain))?;
 
-    // The domain in the discovery response must match the claimed domain
     if info.domain != domain {
         return Err(format!("domain mismatch: claimed {} but server says {}", domain, info.domain));
     }
@@ -84,7 +85,7 @@ async fn verify_sender_domain(domain: &str) -> Result<(), String> {
         return Err(format!("{} has federation disabled", domain));
     }
 
-    Ok(())
+    Ok(info)
 }
 
 // ==================== Inbox — Receive federated messages ====================
@@ -94,18 +95,37 @@ async fn verify_sender_domain(domain: &str) -> Result<(), String> {
 /// arrive from other Point instances.
 pub async fn inbox(
     State(state): State<AppState>,
-    Json(body): Json<FederatedMessage>,
+    headers: axum::http::HeaderMap,
+    body: axum::body::Bytes,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // Parse body
+    let body: FederatedMessage = serde_json::from_slice(&body)
+        .map_err(|e| AppError::BadRequest(format!("invalid body: {e}")))?;
+    let body_bytes = serde_json::to_vec(&body).unwrap_or_default();
+
     // Verify the sending domain
     let sender_domain = body.sender.split('@').nth(1)
         .ok_or_else(|| AppError::BadRequest("sender must be user@domain".into()))?;
 
-    // Domain verification: confirm the sender's domain is a real Point server
-    // by checking its /.well-known/point endpoint returns the claimed domain.
-    // This prevents domain spoofing — you can't claim to be alice@trusted.com
-    // unless trusted.com actually runs a Point server.
-    verify_sender_domain(sender_domain).await
-        .map_err(|e| AppError::Forbidden)?;
+    // Discover sender's server and get their public key
+    let sender_info = discover_server(sender_domain).await
+        .map_err(|_| AppError::Forbidden)?;
+
+    // Verify Ed25519 signature if the sender provides a public key
+    if let Some(ref remote_pubkey) = sender_info.public_key {
+        let signature = headers.get("x-point-signature")
+            .and_then(|v| v.to_str().ok())
+            .ok_or_else(|| AppError::BadRequest("missing X-Point-Signature header".into()))?;
+
+        crate::federation_keys::FederationKeys::verify(remote_pubkey, &body_bytes, signature)
+            .map_err(|e| {
+                tracing::warn!(sender = %sender_domain, error = %e, "federation signature verification failed");
+                AppError::Forbidden
+            })?;
+    } else {
+        // Remote server doesn't publish a key — fall back to domain verification only
+        tracing::warn!(sender = %sender_domain, "remote server has no public key — accepting with domain verification only");
+    }
 
     match body.message_type.as_str() {
         "location.update" => handle_federated_location(&state, &body).await,
@@ -361,12 +381,17 @@ pub async fn send_federated(
     };
 
     // Discover the remote server
-    let inbox_url = discover_inbox(recipient_domain).await
+    let remote = discover_server(recipient_domain).await
         .map_err(|e| AppError::BadRequest(format!("federation discovery failed: {e}")))?;
 
-    // Send to remote inbox
+    // Sign the message with our Ed25519 key
+    let body_bytes = serde_json::to_vec(&msg).unwrap_or_default();
+    let signature = state.federation_keys.sign(&body_bytes);
+
+    // Send to remote inbox with signature header
     let client = reqwest::Client::new();
-    let resp = client.post(&inbox_url)
+    let resp = client.post(&remote.endpoints.inbox)
+        .header("X-Point-Signature", &signature)
         .json(&msg)
         .timeout(std::time::Duration::from_secs(10))
         .send()
