@@ -631,15 +631,7 @@ class MapViewState extends State<MapView> {
   }
 
   Color _colorForUser(String userId) {
-    const colors = [
-      Color(0xFFE85D5D),
-      Color(0xFF4A9E6B),
-      Color(0xFFC49A5A),
-      Color(0xFF7A8AAB),
-      Color(0xFF9B6B9E),
-      Color(0xFF5A8AAB),
-    ];
-    return colors[userId.hashCode.abs() % colors.length];
+    return PointColors.colorForUser(userId);
   }
 
   @override

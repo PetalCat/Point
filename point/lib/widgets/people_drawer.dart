@@ -9,6 +9,7 @@ import 'filter_bar.dart';
 import 'person_row.dart';
 import 'item_row.dart';
 import '../screens/group_detail_screen.dart';
+import 'ghost_bottom_sheet.dart';
 
 class PeopleDrawer extends StatelessWidget {
   final ScrollController? scrollController;
@@ -272,7 +273,7 @@ class _SharingToggle extends StatelessWidget {
     final ghost = locationProvider.isGhostMode;
 
     return GestureDetector(
-      onTap: () => locationProvider.toggleGhostMode(),
+      onTap: () => GhostBottomSheet.show(context),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),

@@ -13,6 +13,7 @@ class LoginScreen extends StatefulWidget {
 }
 
 class _LoginScreenState extends State<LoginScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _serverUrlController = TextEditingController();
@@ -53,6 +54,8 @@ class _LoginScreenState extends State<LoginScreen> {
     await AppConfig.setServerUrl(serverText);
     setState(() => _editingServer = false);
 
+    if (!_formKey.currentState!.validate()) return;
+
     setState(() => _submitting = true);
     final auth = context.read<AuthProvider>();
     await auth.login(_usernameController.text.trim(), _passwordController.text);
@@ -69,18 +72,30 @@ class _LoginScreenState extends State<LoginScreen> {
         child: Center(
           child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: 32),
-            child: Column(
+            child: Form(
+              key: _formKey,
+              child: Column(
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Point',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 40,
-                    fontWeight: FontWeight.w800,
-                    color: Color(0xFF3F51FF),
-                  ),
+                Column(
+                  children: [
+                    Image.asset(
+                      'assets/icon/app_icon.png',
+                      width: 64,
+                      height: 64,
+                    ),
+                    const SizedBox(height: 12),
+                    const Text(
+                      'Point',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        fontSize: 40,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF3F51FF),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 8),
                 const Text(
@@ -145,6 +160,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   controller: _usernameController,
                   hint: 'Username',
                   textInputAction: TextInputAction.next,
+                  validator: (v) {
+                    if (v == null || v.trim().length < 3) return 'Username must be at least 3 characters';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 16),
                 _buildTextField(
@@ -153,6 +172,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   obscure: true,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _submit(),
+                  validator: (v) {
+                    if (v == null || v.length < 8) return 'Password must be at least 8 characters';
+                    return null;
+                  },
                 ),
                 const SizedBox(height: 24),
                 SizedBox(
@@ -233,6 +256,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 ),
               ],
             ),
+            ),
           ),
         ),
       ),
@@ -245,12 +269,14 @@ class _LoginScreenState extends State<LoginScreen> {
     bool obscure = false,
     TextInputAction? textInputAction,
     ValueChanged<String>? onSubmitted,
+    String? Function(String?)? validator,
   }) {
-    return TextField(
+    return TextFormField(
+      validator: validator,
       controller: controller,
       obscureText: obscure,
       textInputAction: textInputAction,
-      onSubmitted: onSubmitted,
+      onFieldSubmitted: onSubmitted,
       decoration: InputDecoration(
         hintText: hint,
         hintStyle: TextStyle(color: context.hintText),

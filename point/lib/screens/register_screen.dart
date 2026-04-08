@@ -12,9 +12,11 @@ class RegisterScreen extends StatefulWidget {
 }
 
 class _RegisterScreenState extends State<RegisterScreen> {
+  final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _displayNameController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
   final _inviteCodeController = TextEditingController();
   final _serverUrlController = TextEditingController();
   bool _submitting = false;
@@ -37,6 +39,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     _usernameController.dispose();
     _displayNameController.dispose();
     _passwordController.dispose();
+    _confirmPasswordController.dispose();
     _inviteCodeController.dispose();
     _serverUrlController.dispose();
     super.dispose();
@@ -55,6 +58,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
     await AppConfig.setServerUrl(serverText);
     setState(() => _editingServer = false);
+
+    if (!_formKey.currentState!.validate()) return;
 
     setState(() => _submitting = true);
     final auth = context.read<AuthProvider>();
@@ -87,7 +92,9 @@ class _RegisterScreenState extends State<RegisterScreen> {
       body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 32),
-          child: Column(
+          child: Form(
+            key: _formKey,
+            child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const SizedBox(height: 8),
@@ -156,6 +163,10 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 controller: _usernameController,
                 hint: 'Username',
                 textInputAction: TextInputAction.next,
+                validator: (v) {
+                  if (v == null || v.trim().length < 3) return 'Username must be at least 3 characters';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               _buildTextField(
@@ -169,6 +180,21 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 hint: 'Password',
                 obscure: true,
                 textInputAction: TextInputAction.next,
+                validator: (v) {
+                  if (v == null || v.length < 8) return 'Password must be at least 8 characters';
+                  return null;
+                },
+              ),
+              const SizedBox(height: 16),
+              _buildTextField(
+                controller: _confirmPasswordController,
+                hint: 'Confirm Password',
+                obscure: true,
+                textInputAction: TextInputAction.next,
+                validator: (v) {
+                  if (v != _passwordController.text) return 'Passwords do not match';
+                  return null;
+                },
               ),
               const SizedBox(height: 16),
               _buildTextField(
@@ -225,6 +251,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
               ),
             ],
           ),
+          ),
         ),
       ),
     );
@@ -237,12 +264,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
     String? helperText,
     TextInputAction? textInputAction,
     ValueChanged<String>? onSubmitted,
+    String? Function(String?)? validator,
   }) {
-    return TextField(
+    return TextFormField(
+      validator: validator,
       controller: controller,
       obscureText: obscure,
       textInputAction: textInputAction,
-      onSubmitted: onSubmitted,
+      onFieldSubmitted: onSubmitted,
       decoration: InputDecoration(
         hintText: hint,
         helperText: helperText,

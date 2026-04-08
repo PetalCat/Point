@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
@@ -735,45 +736,7 @@ class _HomeScreenState extends State<HomeScreen> {
             ],
           ),
         ),
-        // Connection state indicator
-        Positioned(
-          top: 52,
-          left: 0,
-          right: 0,
-          child: Center(
-            child: ValueListenableBuilder<bool>(
-              valueListenable: context.read<WsService>().connectionState,
-              builder: (context, connected, _) {
-                if (connected) return const SizedBox.shrink();
-                return Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFE53935),
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: [
-                      BoxShadow(
-                        color: const Color(0xFFE53935).withValues(alpha: 0.3),
-                        blurRadius: 10,
-                        offset: const Offset(0, 3),
-                      ),
-                    ],
-                  ),
-                  child: const Text(
-                    '\u26A0 Disconnected \u2014 reconnecting...',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: Colors.white,
-                    ),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
+        // (reconnection banner — see ValueListenableBuilder version below)
         // Ghost mode indicator — tappable
         if (ghostMode)
           Positioned(
@@ -1414,7 +1377,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 width: 36,
                 height: 4,
                 decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.06),
+                  color: context.dividerClr,
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -1475,9 +1438,28 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
               const SizedBox(height: 8),
-              _sheetAction(Icons.remove_circle_outline, 'Stop sharing', () {
-                Navigator.pop(ctx);
-                sharing.removeShare(userId);
+              _sheetAction(Icons.remove_circle_outline, 'Stop sharing', () async {
+                final confirmed = await showDialog<bool>(
+                  context: ctx,
+                  builder: (dialogCtx) => AlertDialog(
+                    title: const Text('Stop sharing'),
+                    content: Text('Stop sharing with $name?'),
+                    actions: [
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogCtx, false),
+                        child: const Text('Cancel'),
+                      ),
+                      TextButton(
+                        onPressed: () => Navigator.pop(dialogCtx, true),
+                        child: const Text('Stop', style: TextStyle(color: PointColors.danger)),
+                      ),
+                    ],
+                  ),
+                );
+                if (confirmed == true) {
+                  Navigator.pop(ctx);
+                  sharing.removeShare(userId);
+                }
               }, danger: true),
             ],
           ),
@@ -1500,7 +1482,7 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
         margin: const EdgeInsets.only(bottom: 4),
         decoration: BoxDecoration(
-          color: danger ? const Color(0xFFFFF5F5) : context.subtleBg,
+          color: danger ? PointColors.danger.withValues(alpha: 0.1) : context.subtleBg,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Row(
@@ -1580,7 +1562,7 @@ class _HomeScreenState extends State<HomeScreen> {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
-                color: PointColors.surfaceAlt,
+                color: context.subtleBg,
                 borderRadius: BorderRadius.circular(10),
               ),
               child: const Text(
@@ -1666,7 +1648,7 @@ class _HomeScreenState extends State<HomeScreen> {
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color: const Color(0xFFFFF3E0),
+              color: const Color(0xFFFFAB00).withValues(alpha: 0.1),
               borderRadius: BorderRadius.circular(8),
             ),
             child: const Text(
@@ -1834,7 +1816,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   width: 36,
                   height: 4,
                   decoration: BoxDecoration(
-                    color: Colors.black.withValues(alpha: 0.06),
+                    color: context.dividerClr,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
@@ -2331,7 +2313,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
           decoration: BoxDecoration(
-            color: isAccent ? PointColors.accent : PointColors.surfaceAlt,
+            color: isAccent ? PointColors.accent : context.subtleBg,
             borderRadius: BorderRadius.circular(10),
           ),
           child: Text(
@@ -2455,8 +2437,6 @@ class _HomeScreenState extends State<HomeScreen> {
                 children: [
                   _statBox('${groups.groups.length}', 'Groups'),
                   const SizedBox(width: 8),
-                  _statBox('0', 'Bridges'),
-                  const SizedBox(width: 8),
                   _statBoxAccent('📍', 'Sharing'),
                 ],
               ),
@@ -2575,8 +2555,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: _settingRow('🌙', 'Dark Mode', modeLabel),
                   ),
                   _divider(),
-                  _settingRow('📏', 'Units', 'Miles'),
-                  _divider(),
                   _settingRow('🔔', 'Notifications', ''),
                   _divider(),
                   GestureDetector(
@@ -2661,13 +2639,19 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
 
         Center(
-          child: Text(
-            'Point v0.1.0',
-            style: TextStyle(
-              fontSize: 10,
-              fontWeight: FontWeight.w600,
-              color: context.tertiaryText,
-            ),
+          child: FutureBuilder<PackageInfo>(
+            future: PackageInfo.fromPlatform(),
+            builder: (context, snapshot) {
+              final version = snapshot.data?.version ?? '...';
+              return Text(
+                'Point v$version',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w600,
+                  color: context.tertiaryText,
+                ),
+              );
+            },
           ),
         ),
         const SizedBox(height: 20),
