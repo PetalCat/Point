@@ -4,13 +4,13 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:firebase_messaging/firebase_messaging.dart';
 
 import '../config.dart';
 import '../theme.dart';
 import '../providers.dart';
 import '../widgets/ghost_bottom_sheet.dart';
 import '../services/notification_service.dart';
+import '../services/push_service.dart';
 import '../widgets/filter_bar.dart';
 import '../widgets/map_view.dart';
 import '../widgets/people_drawer.dart';
@@ -75,14 +75,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Process any pending MLS messages
     await crypto.processPendingMessages();
 
-    // Register FCM token with server
+    // Initialize push notifications (Firebase, UnifiedPush, or disabled)
     try {
-      final fcmToken = await FirebaseMessaging.instance.getToken();
-      if (fcmToken != null && mounted) {
-        await ref.read(authProvider.notifier).registerFcmToken(fcmToken);
-      }
+      await PushService.init(
+        onTokenReceived: (token) async {
+          await ref.read(authProvider.notifier).registerFcmToken(token);
+        },
+      );
     } catch (e) {
-      debugPrint('FCM token registration: $e');
+      debugPrint('Push init: $e');
     }
 
     await groupNotifier.loadGroups();

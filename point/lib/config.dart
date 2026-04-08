@@ -1,6 +1,16 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models/map_provider.dart';
 
+enum PushProvider {
+  firebase('Firebase (Google)', 'Push notifications via Google. Works out of the box.'),
+  unified('UnifiedPush', 'Self-hostable push via ntfy, gotify, etc. No Google.'),
+  none('Disabled', 'No push notifications. App checks for updates when opened.');
+
+  final String label;
+  final String description;
+  const PushProvider(this.label, this.description);
+}
+
 class AppConfig {
   static String serverUrl = '';
   static String wsUrl = '';
@@ -8,6 +18,8 @@ class AppConfig {
   static String? mapboxToken;
   static String? selfHostedTileUrl;
   static String? selfHostedToken;
+  static PushProvider pushProvider = PushProvider.firebase;
+  static String? unifiedPushEndpoint;
 
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -22,6 +34,10 @@ class AppConfig {
     mapboxToken = prefs.getString('mapbox_token');
     selfHostedTileUrl = prefs.getString('self_hosted_tile_url');
     selfHostedToken = prefs.getString('self_hosted_token');
+    final pushStr = prefs.getString('push_provider') ?? 'firebase';
+    pushProvider = PushProvider.values.firstWhere(
+      (e) => e.name == pushStr, orElse: () => PushProvider.firebase);
+    unifiedPushEndpoint = prefs.getString('unified_push_endpoint');
   }
 
   static Future<void> setServerUrl(String url) async {
@@ -62,6 +78,16 @@ class AppConfig {
     if (httpUrl.isEmpty) return '';
     return '${httpUrl.replaceFirst('http', 'ws')}/ws';
   }
+
+  static Future<void> setPushProvider(PushProvider provider, {String? endpoint}) async {
+    pushProvider = provider;
+    unifiedPushEndpoint = endpoint ?? unifiedPushEndpoint;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('push_provider', provider.name);
+    if (endpoint != null) await prefs.setString('unified_push_endpoint', endpoint);
+  }
+
+  static bool get isFirebaseEnabled => pushProvider == PushProvider.firebase;
 
   static bool get isConfigured => serverUrl.isNotEmpty;
 }

@@ -13,6 +13,7 @@ import 'theme.dart';
 
 import 'config.dart';
 import 'services/notification_service.dart';
+import 'services/push_service.dart';
 import 'src/rust/frb_generated.dart';
 
 class ThemeModeState {
@@ -44,7 +45,7 @@ class ThemeNotifier extends Notifier<ThemeModeState> {
   }
 }
 
-// Handle background FCM messages
+// Handle background FCM messages (only when Firebase is enabled)
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
@@ -53,29 +54,15 @@ Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await RustLib.init();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await AppConfig.load();
   await NotificationService.init();
   await GhostNotifier.initBackground();
 
-  // FCM setup
-  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  final fcm = FirebaseMessaging.instance;
-  await fcm.requestPermission(alert: true, badge: true, sound: true);
-  final fcmToken = await fcm.getToken();
-  if (fcmToken != null) {
-    debugPrint('FCM Token: $fcmToken');
+  // Only init Firebase if the user has it enabled
+  if (AppConfig.isFirebaseEnabled) {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+    FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
   }
-
-  // Handle foreground FCM messages
-  FirebaseMessaging.onMessage.listen((message) {
-    if (message.notification != null) {
-      NotificationService.show(
-        title: message.notification!.title ?? 'Point',
-        body: message.notification!.body ?? '',
-      );
-    }
-  });
 
   runApp(const ProviderScope(child: PointApp()));
 }

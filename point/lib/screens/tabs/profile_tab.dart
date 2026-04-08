@@ -236,7 +236,11 @@ class ProfileTab extends ConsumerWidget {
                     child: _settingRow(context, '\u{1F5FA}\uFE0F', 'Map Provider', AppConfig.mapProvider.label),
                   ),
                   _divider(context),
-                  _settingRow(context, '\u{1F514}', 'Notifications', ''),
+                  GestureDetector(
+                    onTap: () => _showPushProviderSheet(context),
+                    behavior: HitTestBehavior.opaque,
+                    child: _settingRow(context, '\u{1F514}', 'Push Notifications', AppConfig.pushProvider.label),
+                  ),
                   _divider(context),
                   GestureDetector(
                     onTap: () => _showChangePasswordSheet(context, ref),
@@ -566,6 +570,111 @@ class ProfileTab extends ConsumerWidget {
 
   Widget _divider(BuildContext context) =>
       Divider(height: 1, color: context.dividerClr, indent: 16, endIndent: 16);
+
+  void _showPushProviderSheet(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.cardBg,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          var selected = AppConfig.pushProvider;
+          return Padding(
+            padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Center(child: Container(width: 36, height: 4,
+                    decoration: BoxDecoration(color: context.dividerClr, borderRadius: BorderRadius.circular(2)))),
+                const SizedBox(height: 16),
+                Text('Push Notifications', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w900, color: context.primaryText)),
+                const SizedBox(height: 4),
+                Text('How should Point wake your device for updates?',
+                    style: TextStyle(fontSize: 12, color: context.secondaryText)),
+                const SizedBox(height: 16),
+                ...PushProvider.values.map((provider) {
+                  final isSelected = selected == provider;
+                  return GestureDetector(
+                    onTap: () => setSheetState(() => selected = provider),
+                    child: Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: isSelected ? PointColors.accent.withValues(alpha: 0.08) : context.cardBg,
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                          color: isSelected ? PointColors.accent.withValues(alpha: 0.4) : context.dividerClr,
+                          width: isSelected ? 2 : 1,
+                        ),
+                      ),
+                      child: Row(
+                        children: [
+                          Expanded(child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(children: [
+                                Text(provider.label, style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.primaryText)),
+                                if (provider == PushProvider.unified) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF00FF88).withValues(alpha: 0.1),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: const Text('NO GOOGLE', style: TextStyle(fontSize: 8, fontWeight: FontWeight.w800, color: Color(0xFF00FF88))),
+                                  ),
+                                ],
+                              ]),
+                              const SizedBox(height: 2),
+                              Text(provider.description, style: TextStyle(fontSize: 11, color: context.secondaryText)),
+                            ],
+                          )),
+                          if (isSelected) const Icon(Icons.check_circle, color: PointColors.accent, size: 22),
+                        ],
+                      ),
+                    ),
+                  );
+                }),
+                const SizedBox(height: 8),
+                if (selected == PushProvider.none)
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFB700).withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Text('Without push, location updates only arrive when you open the app.',
+                        style: TextStyle(fontSize: 11, color: context.secondaryText)),
+                  ),
+                const SizedBox(height: 12),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton(
+                    onPressed: () async {
+                      await AppConfig.setPushProvider(selected);
+                      if (ctx.mounted) Navigator.pop(ctx);
+                    },
+                    style: FilledButton.styleFrom(
+                      backgroundColor: PointColors.accent,
+                      padding: const EdgeInsets.symmetric(vertical: 14),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                    ),
+                    child: Text(selected == AppConfig.pushProvider ? 'Done' : 'Save & Restart App',
+                        style: const TextStyle(fontWeight: FontWeight.w700)),
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      ),
+    );
+  }
 
   void _showChangePasswordSheet(BuildContext context, WidgetRef ref) {
     final currentCtrl = TextEditingController();
