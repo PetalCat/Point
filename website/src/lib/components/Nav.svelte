@@ -19,6 +19,12 @@
 
 	function closeMobile() {
 		mobileOpen = false;
+		document.body.style.overflow = '';
+	}
+
+	function toggleMobile() {
+		mobileOpen = !mobileOpen;
+		document.body.style.overflow = mobileOpen ? 'hidden' : '';
 	}
 </script>
 
@@ -31,7 +37,8 @@
 			<span class="logo-text">Point</span>
 		</a>
 
-		<div class="nav-links" class:open={mobileOpen}>
+		<!-- svelte-ignore a11y_no_static_element_interactions -->
+		<div class="nav-links" class:open={mobileOpen} onclick={(e) => { if (e.target === e.currentTarget) closeMobile(); }}>
 			{#each links as link}
 				<a
 					href={link.href}
@@ -49,7 +56,7 @@
 
 		<button
 			class="mobile-toggle"
-			onclick={() => mobileOpen = !mobileOpen}
+			onclick={toggleMobile}
 			aria-label={mobileOpen ? 'Close menu' : 'Open menu'}
 			aria-expanded={mobileOpen}
 		>
@@ -139,6 +146,10 @@
 		margin-left: 0.75rem;
 		padding: 0.6rem 1.4rem;
 		font-size: 0.85rem;
+	}
+
+	.mobile-backdrop {
+		display: none;
 	}
 
 	.mobile-toggle {

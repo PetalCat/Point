@@ -25,10 +25,8 @@
 			<span class="gradient-text">One map.</span>
 		</h1>
 		<p class="hero-sub" use:reveal={{ delay: 200 }}>
-			Beeper for location. Bridge Find My, Google Maps, Life360, Tile, and
-			more into one beautiful, encrypted app. Native sharing is fully end-to-end encrypted.
-			Bridged data is encrypted before reaching the server — the server only ever sees ciphertext.
-			Self-host your bridges for the strongest privacy guarantee.
+			See everyone in one place. Bridge Find My, Google Maps, Life360, and more
+			into a single encrypted app you control. End-to-end encrypted. Self-hostable. Open source.
 		</p>
 		<div class="hero-actions" use:reveal={{ delay: 300 }}>
 			<a href="https://app.petalcat.dev" class="btn-primary" target="_blank" rel="noopener">
@@ -81,7 +79,7 @@
 		<div class="features-grid">
 			{#each [
 				{ title: 'Real-time Location', desc: 'See everyone on a live map with smooth position updates. Battery level and speed included.', icon: '⚡', color: '#FFD600' },
-				{ title: 'E2E Encrypted', desc: 'MLS-based encryption (X25519 + ChaCha20-Poly1305). Native sharing is fully E2E — the server is zero-knowledge. Bridges encrypt at the edge on your own infrastructure.', icon: '🔒', color: '#00FF88' },
+				{ title: 'E2E Encrypted', desc: 'Your location is encrypted on your device and only readable by the people you choose. The server never sees your data — not even the admin.', icon: '🔒', color: '#00FF88' },
 				{ title: 'Geofencing', desc: 'Circle and polygon geofences with instant push notifications when people arrive or leave.', icon: '📐', color: '#3F51FF' },
 				{ title: 'Ghost Mode', desc: 'Go invisible instantly. Pause all sharing with one tap. No one knows you went dark.', icon: '👻', color: '#B44DFF' },
 				{ title: 'Trail History', desc: 'Heatmap history shows where people have been. Beautiful visualizations of movement patterns.', icon: '🗺️', color: '#FF6B35' },
@@ -170,7 +168,7 @@
 			<a href="https://app.petalcat.dev" class="btn-primary" target="_blank" rel="noopener">
 				Download Point
 			</a>
-			<a href="#" class="btn-secondary">
+			<a href="https://github.com/PetalCat/Point" class="btn-secondary" target="_blank" rel="noopener">
 				Star on GitHub
 			</a>
 		</div>

@@ -227,7 +227,10 @@
 			return `rgba(${r},${g},${b},${alpha})`;
 		}
 
+		let isVisible = true;
+
 		function animate(time: number) {
+			if (!isVisible) return;
 			ctx.clearRect(0, 0, w, h);
 			drawGrid(time);
 			drawGeofences(time);
@@ -236,12 +239,20 @@
 			animFrame = requestAnimationFrame(animate);
 		}
 
+		// Pause animation when canvas is off-screen to save CPU/battery
+		const observer = new IntersectionObserver(([entry]) => {
+			isVisible = entry.isIntersecting;
+			if (isVisible) animFrame = requestAnimationFrame(animate);
+		}, { threshold: 0 });
+		observer.observe(canvas);
+
 		resize();
 		animFrame = requestAnimationFrame(animate);
 		window.addEventListener('resize', resize);
 
 		return () => {
 			cancelAnimationFrame(animFrame);
+			observer.disconnect();
 			window.removeEventListener('resize', resize);
 		};
 	});

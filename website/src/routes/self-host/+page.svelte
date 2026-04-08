@@ -1,5 +1,15 @@
 <script lang="ts">
 	import { reveal } from '$lib/actions/reveal';
+
+	async function copyCode(e: MouseEvent) {
+		const btn = e.currentTarget as HTMLButtonElement;
+		const pre = btn.closest('.terminal-card')?.querySelector('code');
+		if (!pre) return;
+		const text = pre.textContent?.replace(/\$ /g, '').trim() ?? '';
+		await navigator.clipboard.writeText(text);
+		btn.textContent = 'Copied!';
+		setTimeout(() => btn.textContent = 'Copy', 2000);
+	}
 </script>
 
 <svelte:head>
@@ -35,7 +45,7 @@
 					<div class="code-block">
 						<div class="code-header">
 							<span>Terminal</span>
-							<button class="copy-btn" aria-label="Copy to clipboard">Copy</button>
+							<button class="copy-btn" aria-label="Copy to clipboard" onclick={copyCode}>Copy</button>
 						</div>
 						<pre><code><span class="t-prompt">$</span> docker run -d \
   --name point-server \

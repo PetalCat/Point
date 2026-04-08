@@ -9,7 +9,7 @@
 	--color-bg-elevated: #0A0A0F;
 	--color-bg-card: #0D0D14;
 	--color-text: #E8E8ED;
-	--color-text-muted: #7A7A8E;
+	--color-text-muted: #9292A6;
 	--color-border: #1A1A2E;
 	--color-pink: #FF3B8B;
 	--color-orange: #FF6B35;
@@ -118,6 +118,17 @@ h1, h2, h3, h4, h5, h6 {
 @keyframes geofence-pulse {
 	0%, 100% { opacity: 0.15; transform: scale(1); }
 	50% { opacity: 0.3; transform: scale(1.02); }
+}
+
+/* ---- Reduced motion ---- */
+@media (prefers-reduced-motion: reduce) {
+	*, *::before, *::after {
+		animation-duration: 0.01ms !important;
+		animation-iteration-count: 1 !important;
+		transition-duration: 0.01ms !important;
+		scroll-behavior: auto !important;
+	}
+	.reveal { opacity: 1 !important; transform: none !important; }
 }
 
 /* ---- Selection ---- */

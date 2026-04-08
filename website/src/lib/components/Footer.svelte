@@ -21,8 +21,8 @@
 			<div class="footer-col">
 				<h4>Community</h4>
 				<a href="https://github.com/PetalCat/Point" target="_blank" rel="noopener">GitHub</a>
-				<a href="#" target="_blank" rel="noopener">Discord</a>
-				<a href="#" target="_blank" rel="noopener">Matrix</a>
+				<a href="https://github.com/PetalCat/Point/issues" target="_blank" rel="noopener">Issues</a>
+				<a href="https://github.com/PetalCat/Point/discussions" target="_blank" rel="noopener">Discussions</a>
 			</div>
 
 			<div class="footer-col">
