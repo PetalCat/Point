@@ -29,6 +29,14 @@ impl IntoResponse for AppError {
 
 impl From<sqlx::Error> for AppError {
     fn from(e: sqlx::Error) -> Self {
-        AppError::Internal(e.to_string())
+        // Log the real error server-side but return a generic message to the client
+        tracing::error!(error = %e, "database error");
+        match e {
+            sqlx::Error::RowNotFound => AppError::NotFound("not found".into()),
+            sqlx::Error::Database(ref db_err) if db_err.code().map_or(false, |c| c == "2067") => {
+                AppError::Conflict("already exists".into())
+            }
+            _ => AppError::Internal("internal server error".into()),
+        }
     }
 }

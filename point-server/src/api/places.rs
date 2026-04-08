@@ -78,8 +78,24 @@ pub async fn create(
         .await?
         .ok_or(AppError::Forbidden)?;
 
-    if req.name.trim().is_empty() {
-        return Err(AppError::BadRequest("name is required".into()));
+    if req.name.trim().is_empty() || req.name.len() > 128 {
+        return Err(AppError::BadRequest("name must be 1-128 characters".into()));
+    }
+    // Validate coordinates
+    if let Some(lat) = req.lat {
+        if !(-90.0..=90.0).contains(&lat) {
+            return Err(AppError::BadRequest("lat must be between -90 and 90".into()));
+        }
+    }
+    if let Some(lon) = req.lon {
+        if !(-180.0..=180.0).contains(&lon) {
+            return Err(AppError::BadRequest("lon must be between -180 and 180".into()));
+        }
+    }
+    if let Some(radius) = req.radius {
+        if radius <= 0.0 || radius > 100_000.0 {
+            return Err(AppError::BadRequest("radius must be 0-100000 meters".into()));
+        }
     }
 
     let id = uuid::Uuid::new_v4().to_string();
