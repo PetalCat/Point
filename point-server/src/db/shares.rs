@@ -80,7 +80,7 @@ pub async fn get_outgoing_requests(
 ) -> Result<Vec<ShareRequest>, sqlx::Error> {
     let rows = sqlx::query(
         "SELECT id, from_user_id, to_user_id, status, created_at \
-         FROM share_requests WHERE from_user_id = ? \
+         FROM share_requests WHERE from_user_id = ? AND status = 'pending' \
          ORDER BY created_at DESC",
     )
     .bind(user_id)

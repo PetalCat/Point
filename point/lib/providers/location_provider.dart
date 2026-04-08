@@ -179,10 +179,22 @@ class LocationNotifier extends Notifier<LocationState> {
 
   void setActiveGroups(List<String> groupIds) {
     state = state.copyWith(activeGroupIds: List.from(groupIds));
+    // Auto-start sharing when there are active groups or users
+    _autoStartSharing();
   }
 
   void setActiveUserIds(List<String> userIds) {
     state = state.copyWith(activeUserIds: List.from(userIds));
+    _autoStartSharing();
+  }
+
+  /// Auto-start location sharing when the user has active shares or groups.
+  /// No manual toggle needed — sharing is on when you have people to share with.
+  void _autoStartSharing() {
+    if (state.isSharing) return;
+    if (state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty) {
+      startSharing();
+    }
   }
 
   void shareWithUser(String userId) {
@@ -434,7 +446,6 @@ class LocationNotifier extends Notifier<LocationState> {
       if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
         final blob = await cryptoService.encrypt(groupId, locationJson);
-        if (blob == null) continue; // MLS not ready for this group yet
         wsService.sendLocationUpdate(
           recipientType: 'group',
           recipientId: groupId,

@@ -125,19 +125,31 @@ class ProfileTab extends ConsumerWidget {
           ),
           child: Column(
             children: [
-              _toggleRow(
-                context,
-                Icons.location_on_rounded,
-                'Location Sharing',
-                'Sharing with ${groups.groups.length} groups',
-                location.isSharing,
-                onChanged: (val) {
-                  if (val) {
-                    ref.read(locationProvider.notifier).startSharing();
-                  } else {
-                    ref.read(locationProvider.notifier).stopSharing();
-                  }
-                },
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                child: Row(
+                  children: [
+                    Icon(Icons.location_on_rounded, size: 20,
+                        color: location.isSharing ? PointColors.online : context.secondaryText),
+                    const SizedBox(width: 12),
+                    Expanded(child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(location.isSharing ? 'Sharing Location' : 'Not Sharing',
+                            style: TextStyle(fontSize: 14, fontWeight: FontWeight.w700, color: context.primaryText)),
+                        Text('${groups.groups.length} groups, ${ref.watch(sharingProvider).shares.length} people',
+                            style: TextStyle(fontSize: 11, color: context.secondaryText)),
+                      ],
+                    )),
+                    Container(
+                      width: 8, height: 8,
+                      decoration: BoxDecoration(
+                        color: location.isSharing ? PointColors.online : context.tertiaryText,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                  ],
+                ),
               ),
               Divider(
                 height: 1,
