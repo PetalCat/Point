@@ -140,11 +140,9 @@ class LocationService {
       return AndroidSettings(
         accuracy: LocationAccuracy.high,
         distanceFilter: mode.distanceFilter,
-        // Adaptive: 30s max interval as safety net (OS still wakes on distance)
-        // Other modes: explicit interval
         intervalDuration: mode.intervalMs > 0
             ? Duration(milliseconds: mode.intervalMs)
-            : const Duration(seconds: 30),
+            : const Duration(seconds: 3),
         foregroundNotificationConfig: const ForegroundNotificationConfig(
           notificationTitle: 'Point',
           notificationText: 'Sharing your location',

@@ -143,7 +143,7 @@ class SharingNotifier extends Notifier<SharingState> {
 
       await api.acceptRequest(requestId);
 
-      if (otherUserId != null && otherUserId.contains('@') && state.myUserId != null) {
+      if (otherUserId != null && api.isFederated(otherUserId) && state.myUserId != null) {
         try {
           await api.sendFederated(otherUserId, 'share.accept', {});
         } catch (e) {

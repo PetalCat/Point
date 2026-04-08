@@ -244,7 +244,7 @@ class ApiService {
   // Shares
 
   Future<Map<String, dynamic>> sendShareRequest(String toUserId) async {
-    if (_isFederated(toUserId)) {
+    if (isFederated(toUserId)) {
       // Federated share request — route through federation endpoint
       await sendFederated(toUserId, 'share.request', {});
       return {'ok': true, 'federated': true};
@@ -257,7 +257,7 @@ class ApiService {
   }
 
   /// Check if a user ID is on a remote server.
-  bool _isFederated(String userId) {
+  bool isFederated(String userId) {
     if (!userId.contains('@')) return false;
     final domain = userId.split('@').last;
     final myDomain = Uri.parse(AppConfig.serverUrl).host;
@@ -515,7 +515,7 @@ class ApiService {
   }
 
   Future<List<String>> fetchKeyPackages(String userId) async {
-    if (_isFederated(userId)) {
+    if (isFederated(userId)) {
       // Fetch key packages from the remote server via federation
       final result = await _request('POST', '/api/federation/send', body: {
         'recipient': userId,
@@ -532,11 +532,17 @@ class ApiService {
       throw ApiException(response.statusCode, response.body);
     }
     final json = jsonDecode(response.body);
-    return (json['key_packages'] as List).cast<String>();
+    // API returns [{id, key_package}, ...] — extract the key_package strings
+    if (json is List) {
+      return json.map<String>((item) => item['key_package'] as String).toList();
+    }
+    // Fallback for wrapped format
+    final kps = json['key_packages'] as List?;
+    return kps?.cast<String>() ?? [];
   }
 
   Future<void> sendMlsWelcome(String recipientId, String groupId, String payloadBase64) async {
-    if (_isFederated(recipientId)) {
+    if (isFederated(recipientId)) {
       await sendFederated(recipientId, 'mls.welcome', {
         'group_id': groupId,
         'payload': payloadBase64,
@@ -553,7 +559,7 @@ class ApiService {
   Future<void> sendMlsCommit(String groupId, String payloadBase64, {List<String>? recipientIds}) async {
     // If any recipients are federated, send to them individually
     if (recipientIds != null) {
-      for (final rid in recipientIds.where((r) => _isFederated(r))) {
+      for (final rid in recipientIds.where((r) => isFederated(r))) {
         await sendFederated(rid, 'mls.commit', {
           'group_id': groupId,
           'payload': payloadBase64,
