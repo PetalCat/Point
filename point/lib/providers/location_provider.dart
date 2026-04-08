@@ -170,7 +170,36 @@ class LocationNotifier extends Notifier<LocationState> {
       if (pos != null) {
         state = state.copyWith(myPosition: pos);
       }
+      // Always track own position for map display (even without sharing)
+      _startOwnPositionTracking();
     } catch (_) {}
+  }
+
+  /// Track own position for the map without starting "sharing".
+  /// This just updates myPosition — no data sent to anyone.
+  void _startOwnPositionTracking() {
+    if (_positionSubscription != null) return; // already tracking
+    final locationService = ref.read(locationServiceProvider);
+    locationService.startTracking();
+    _positionSubscription = locationService.positions.listen((position) {
+      state = state.copyWith(myPosition: position);
+      // If sharing is active, also send to recipients
+      if (state.isSharing) {
+        _onPosition(position);
+      } else {
+        // Just update own trail
+        if (state.myUserId != null && state.myUserId!.isNotEmpty) {
+          final trail = Map<String, List<TrailPoint>>.from(state.trails);
+          final myTrail = List<TrailPoint>.from(trail[state.myUserId!] ?? []);
+          final ts = position.timestamp.millisecondsSinceEpoch ~/ 1000;
+          myTrail.add(TrailPoint(position.latitude, position.longitude, ts));
+          final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
+          myTrail.removeWhere((p) => p.timestamp < cutoff);
+          trail[state.myUserId!] = myTrail;
+          state = state.copyWith(trails: trail);
+        }
+      }
+    });
   }
 
   void setMyUserId(String id) {
@@ -356,15 +385,12 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   Future<void> startSharing({TrackingMode mode = TrackingMode.adaptive}) async {
-    final locationService = ref.read(locationServiceProvider);
-    try {
-      final granted = await locationService.requestPermission();
-      if (!granted) return;
-
-      locationService.startTracking(mode: mode);
-      _positionSubscription = locationService.positions.listen(_onPosition);
-      state = state.copyWith(isSharing: true);
-    } catch (_) {}
+    // Just flip the sharing flag — tracking is already running from _startOwnPositionTracking
+    state = state.copyWith(isSharing: true);
+    // If tracking isn't started yet, start it
+    if (_positionSubscription == null) {
+      _startOwnPositionTracking();
+    }
   }
 
   void setTrackingMode(TrackingMode mode) {

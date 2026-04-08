@@ -24,6 +24,15 @@ pub async fn create_request(
     from_user_id: &str,
     to_user_id: &str,
 ) -> Result<ShareRequest, sqlx::Error> {
+    // Delete any old non-pending requests so users can re-request after rejection
+    sqlx::query(
+        "DELETE FROM share_requests WHERE from_user_id = ? AND to_user_id = ? AND status != 'pending'",
+    )
+    .bind(from_user_id)
+    .bind(to_user_id)
+    .execute(pool)
+    .await?;
+
     sqlx::query(
         "INSERT INTO share_requests (id, from_user_id, to_user_id) VALUES (?, ?, ?)",
     )
