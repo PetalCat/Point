@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/location_update.dart';
 import '../providers.dart';
@@ -66,6 +68,25 @@ class PersonLocation {
       precision: precision ?? this.precision,
     );
   }
+
+  Map<String, dynamic> toJson() => {
+    'userId': userId, 'lat': lat, 'lon': lon, 'sourceType': sourceType,
+    'timestamp': timestamp, 'battery': battery, 'activity': activity,
+    'speed': speed, 'precision': precision,
+  };
+
+  factory PersonLocation.fromJson(Map<String, dynamic> j) => PersonLocation(
+    userId: j['userId'] ?? '',
+    lat: (j['lat'] as num).toDouble(),
+    lon: (j['lon'] as num).toDouble(),
+    sourceType: j['sourceType'] ?? 'cached',
+    timestamp: j['timestamp'] ?? 0,
+    battery: j['battery'],
+    activity: j['activity'],
+    speed: (j['speed'] as num?)?.toDouble(),
+    online: false, // cached people are offline until confirmed
+    precision: j['precision'] ?? 'exact',
+  );
 }
 
 class LocationState {
@@ -181,7 +202,10 @@ class LocationNotifier extends Notifier<LocationState> {
     _activitySubscription =
         locationService.activityChanges.listen(_onActivityChange);
 
-    // Grab initial cached position if available.
+    // Load cached state first so everyone appears immediately on launch.
+    _loadCache();
+
+    // Then fetch fresh own position.
     _fetchInitialPosition();
 
     ref.onDispose(() {
@@ -191,9 +215,71 @@ class LocationNotifier extends Notifier<LocationState> {
       _nudgeTimer?.cancel();
       _relayTimer?.cancel();
       _geofenceEventsController.close();
+      _saveCache();
     });
 
     return const LocationState();
+  }
+
+  // ---------------------------------------------------------------------------
+  // Position cache — instant load on app start
+  // ---------------------------------------------------------------------------
+
+  static const _cacheKey = 'location_cache';
+
+  Future<void> _loadCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_cacheKey);
+      if (raw == null) return;
+      final data = jsonDecode(raw) as Map<String, dynamic>;
+
+      // Restore people
+      final peopleJson = data['people'] as Map<String, dynamic>? ?? {};
+      final people = <String, PersonLocation>{};
+      for (final entry in peopleJson.entries) {
+        people[entry.key] = PersonLocation.fromJson(entry.value);
+      }
+
+      // Restore own position
+      final myLat = data['myLat'] as double?;
+      final myLon = data['myLon'] as double?;
+
+      if (people.isNotEmpty || myLat != null) {
+        state = state.copyWith(
+          people: people,
+          myPosition: myLat != null && myLon != null
+              ? Position(
+                  latitude: myLat, longitude: myLon,
+                  timestamp: DateTime.now(), accuracy: 0, altitude: 0,
+                  altitudeAccuracy: 0, heading: 0, headingAccuracy: 0,
+                  speed: 0, speedAccuracy: 0,
+                )
+              : null,
+        );
+        debugPrint('[Location] Loaded ${people.length} cached people');
+      }
+    } catch (e) {
+      debugPrint('[Location] Cache load failed: $e');
+    }
+  }
+
+  Future<void> _saveCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final peopleJson = <String, dynamic>{};
+      for (final entry in state.people.entries) {
+        peopleJson[entry.key] = entry.value.toJson();
+      }
+      final data = <String, dynamic>{
+        'people': peopleJson,
+        if (state.myPosition != null) 'myLat': state.myPosition!.latitude,
+        if (state.myPosition != null) 'myLon': state.myPosition!.longitude,
+      };
+      await prefs.setString(_cacheKey, jsonEncode(data));
+    } catch (e) {
+      debugPrint('[Location] Cache save failed: $e');
+    }
   }
 
   Future<void> _fetchInitialPosition() async {
@@ -683,6 +769,7 @@ class LocationNotifier extends Notifier<LocationState> {
       newTrails[senderId] = trail;
 
       state = state.copyWith(people: newPeople, trails: newTrails);
+      _saveCache(); // persist for instant next launch
 
       _checkPersonAgainstPersonalZones(senderId, data.lat, data.lon);
     } catch (_) {
