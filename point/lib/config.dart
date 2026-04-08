@@ -7,20 +7,33 @@ class AppConfig {
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
     serverUrl = prefs.getString('server_url') ?? '';
-    wsUrl = serverUrl.isNotEmpty
-        ? '${serverUrl.replaceFirst('http', 'ws')}/ws'
-        : '';
+    wsUrl = _buildWsUrl(serverUrl);
   }
 
   static Future<void> setServerUrl(String url) async {
-    var cleaned = url.trim();
-    if (!cleaned.startsWith('http')) cleaned = 'http://\$cleaned';
-    if (cleaned.endsWith('/'))
-      cleaned = cleaned.substring(0, cleaned.length - 1);
-    serverUrl = cleaned;
-    wsUrl = '${cleaned.replaceFirst('http', 'ws')}/ws';
+    serverUrl = _normalizeUrl(url);
+    wsUrl = _buildWsUrl(serverUrl);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('server_url', serverUrl);
+  }
+
+  static String _normalizeUrl(String url) {
+    var cleaned = url.trim();
+    // Strip any existing protocol to avoid double-protocol
+    cleaned = cleaned.replaceFirst(RegExp(r'^https?://'), '');
+    // Remove trailing slashes and paths
+    cleaned = cleaned.replaceFirst(RegExp(r'/+$'), '');
+    // Add protocol — default to https, allow http for local IPs
+    final isLocal = cleaned.startsWith('localhost') ||
+        cleaned.startsWith('127.') ||
+        cleaned.startsWith('10.') ||
+        cleaned.startsWith('192.168.');
+    return '${isLocal ? 'http' : 'https'}://$cleaned';
+  }
+
+  static String _buildWsUrl(String httpUrl) {
+    if (httpUrl.isEmpty) return '';
+    return '${httpUrl.replaceFirst('http', 'ws')}/ws';
   }
 
   static bool get isConfigured => serverUrl.isNotEmpty;

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:provider/provider.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -40,6 +41,7 @@ class _HomeScreenState extends State<HomeScreen> {
   int _currentTab = 0;
   int _sharingFilter = 0; // 0=All, 1=People, 2=Groups, 3=Requests
   bool _showTrails = true;
+  bool _servicesReady = false;
   String? _selectedPersonId;
   final _mapKey = GlobalKey<MapViewState>();
   StreamSubscription<Map<String, dynamic>>? _geofenceSubscription;
@@ -184,6 +186,8 @@ class _HomeScreenState extends State<HomeScreen> {
         debugPrint('Zone consents load: $e');
       }
     }
+
+    if (mounted) setState(() => _servicesReady = true);
   }
 
   @override
@@ -197,20 +201,47 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: context.pageBg,
       body: SafeArea(
-        child: Column(
+        child: Stack(
           children: [
-            Expanded(
-              child: IndexedStack(
-                index: _currentTab,
-                children: [
-                  _buildMapTab(),
-                  _buildSharingTab(),
-                  _buildInboxTab(),
-                  _buildProfileTab(),
-                ],
-              ),
+            Column(
+              children: [
+                Expanded(
+                  child: IndexedStack(
+                    index: _currentTab,
+                    children: [
+                      _buildMapTab(),
+                      _buildSharingTab(),
+                      _buildInboxTab(),
+                      _buildProfileTab(),
+                    ],
+                  ),
+                ),
+                _buildTabBar(),
+              ],
             ),
-            _buildTabBar(),
+            // Loading overlay during init
+            if (!_servicesReady)
+              Positioned.fill(
+                child: Container(
+                  color: context.pageBg,
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Image.asset('assets/icon/app_icon.png', width: 80, height: 80),
+                        const SizedBox(height: 20),
+                        const SizedBox(
+                          width: 24, height: 24,
+                          child: CircularProgressIndicator(strokeWidth: 2, color: PointColors.accent),
+                        ),
+                        const SizedBox(height: 12),
+                        Text('Setting up encryption...',
+                            style: TextStyle(fontSize: 13, color: context.secondaryText)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
@@ -925,10 +956,10 @@ class _HomeScreenState extends State<HomeScreen> {
         // Drawer
         DraggableScrollableSheet(
           initialChildSize: 0.35,
-          minChildSize: 0.06,
+          minChildSize: 0.12,
           maxChildSize: 0.85,
           snap: true,
-          snapSizes: const [0.06, 0.35, 0.85],
+          snapSizes: const [0.12, 0.35, 0.85],
           builder: (context, scrollController) => Container(
             decoration: BoxDecoration(
               color: context.cardBg,
@@ -965,7 +996,13 @@ class _HomeScreenState extends State<HomeScreen> {
     final sharing = context.watch<SharingProvider>();
     final filterLabels = ['All', 'People', 'Groups', 'Requests'];
 
-    return ListView(
+    return RefreshIndicator(
+      color: PointColors.accent,
+      onRefresh: () async {
+        await groups.loadGroups();
+        await sharing.loadAll();
+      },
+      child: ListView(
       padding: const EdgeInsets.symmetric(horizontal: 14),
       children: [
         const SizedBox(height: 14),
@@ -1252,6 +1289,7 @@ class _HomeScreenState extends State<HomeScreen> {
           _buildEmptyState(Icons.share_outlined, 'No sharing yet'),
         const SizedBox(height: 40),
       ],
+    ),
     );
   }
 
@@ -2212,25 +2250,29 @@ class _HomeScreenState extends State<HomeScreen> {
       }
     }
 
-    return ListView(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      children: [
-        const SizedBox(height: 14),
-        Text(
-          'Inbox',
-          style: TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.w900,
-            color: context.primaryText,
+    return RefreshIndicator(
+      color: PointColors.accent,
+      onRefresh: () => sharing.loadAll(),
+      child: ListView(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        children: [
+          const SizedBox(height: 14),
+          Text(
+            'Inbox',
+            style: TextStyle(
+              fontSize: 26,
+              fontWeight: FontWeight.w900,
+              color: context.primaryText,
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        if (items.isEmpty)
-          _buildEmptyState(Icons.inbox_outlined, 'No notifications yet')
-        else
-          ...items,
-        const SizedBox(height: 40),
-      ],
+          const SizedBox(height: 14),
+          if (items.isEmpty)
+            _buildEmptyState(Icons.inbox_outlined, 'No notifications yet')
+          else
+            ...items,
+          const SizedBox(height: 40),
+        ],
+      ),
     );
   }
 
@@ -3152,7 +3194,10 @@ class _HomeScreenState extends State<HomeScreen> {
     final active = _currentTab == index;
     return Expanded(
       child: GestureDetector(
-        onTap: () => setState(() => _currentTab = index),
+        onTap: () {
+          HapticFeedback.selectionClick();
+          setState(() => _currentTab = index);
+        },
         behavior: HitTestBehavior.opaque,
         child: Column(
           mainAxisSize: MainAxisSize.min,
