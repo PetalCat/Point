@@ -128,10 +128,12 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     child: Row(
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        const Text(
-                          '\u{1F5A5}\uFE0F ',
-                          style: TextStyle(fontSize: 13),
+                        const Icon(
+                          Icons.dns_rounded,
+                          size: 13,
+                          color: Color(0xFF3F51FF),
                         ),
+                        const SizedBox(width: 4),
                         Text(
                           AppConfig.serverUrl.replaceAll(
                             RegExp(r'^https?://'),

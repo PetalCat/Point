@@ -10,10 +10,10 @@ class ItemRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final icon = switch (item.trackerType) {
-      'airtag' => '🔑',
-      'tile' => '📍',
-      'smarttag' => '📱',
-      _ => '📦',
+      'airtag' => Icons.key_rounded,
+      'tile' => Icons.location_on_rounded,
+      'smarttag' => Icons.phone_android_rounded,
+      _ => Icons.inventory_2_rounded,
     };
 
     final (badgeLabel, badgeColor) = switch (item.trackerType) {
@@ -35,7 +35,7 @@ class ItemRow extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
-              child: Text(icon, style: const TextStyle(fontSize: 18)),
+              child: Icon(icon, size: 18, color: badgeColor),
             ),
           ),
           const SizedBox(width: 14),

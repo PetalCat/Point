@@ -327,15 +327,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                 child: Row(
                   children: [
-                    GestureDetector(
-                      onTap: _deselectPerson,
-                      child: Container(
-                        width: 34, height: 34,
-                        decoration: BoxDecoration(
-                          color: context.subtleBg,
-                          borderRadius: BorderRadius.circular(12),
+                    Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        onTap: _deselectPerson,
+                        borderRadius: BorderRadius.circular(12),
+                        child: Container(
+                          width: 34, height: 34,
+                          decoration: BoxDecoration(
+                            color: context.subtleBg,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(Icons.arrow_back_ios_new, size: 14, color: context.secondaryText),
                         ),
-                        child: Icon(Icons.arrow_back_ios_new, size: 14, color: context.secondaryText),
                       ),
                     ),
                     const SizedBox(width: 10),
@@ -377,26 +381,34 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: GestureDetector(
-                  onTap: () => Navigator.push(context, MaterialPageRoute(
-                    builder: (_) => PersonHistoryScreen(userId: userId, displayName: name, userColor: PointColors.colorForUser(userId)),
-                  )),
-                  child: Container(
-                    width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: BoxDecoration(color: context.subtleBg, borderRadius: BorderRadius.circular(10)),
-                    child: const Center(child: Text('View History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PointColors.accent))),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: () => Navigator.push(context, MaterialPageRoute(
+                      builder: (_) => PersonHistoryScreen(userId: userId, displayName: name, userColor: PointColors.colorForUser(userId)),
+                    )),
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 10),
+                      decoration: BoxDecoration(color: context.subtleBg, borderRadius: BorderRadius.circular(10)),
+                      child: const Center(child: Text('View History', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PointColors.accent))),
+                    ),
                   ),
                 ),
               ),
               const SizedBox(height: 10),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: GestureDetector(
-                  onTap: _deselectPerson,
-                  child: Container(
-                    width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
-                    decoration: BoxDecoration(color: context.subtleBg, borderRadius: BorderRadius.circular(14)),
-                    child: Center(child: Text('Stop following', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.secondaryText))),
+                child: Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _deselectPerson,
+                    borderRadius: BorderRadius.circular(14),
+                    child: Container(
+                      width: double.infinity, padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(color: context.subtleBg, borderRadius: BorderRadius.circular(14)),
+                      child: Center(child: Text('Stop following', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w700, color: context.secondaryText))),
+                    ),
                   ),
                 ),
               ),
@@ -515,8 +527,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 final active = mode == _filterMode;
                 return Padding(
                   padding: const EdgeInsets.only(right: 6),
-                  child: GestureDetector(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
                     onTap: () => setState(() => _filterMode = mode),
+                    borderRadius: BorderRadius.circular(22),
                     child: Container(
                       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 8),
                       decoration: BoxDecoration(
@@ -533,6 +548,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                       ),
                     ),
                   ),
+                  ),
                 );
               }),
             ],
@@ -542,8 +558,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           Positioned(
             top: 56, left: 0, right: 0,
             child: Center(
-              child: GestureDetector(
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
                 onTap: () => GhostBottomSheet.show(context),
+                borderRadius: BorderRadius.circular(16),
                 child: Container(
                   padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
                   decoration: BoxDecoration(
@@ -561,6 +580,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ],
                   ),
                 ),
+                ),
               ),
             ),
           ),
@@ -568,43 +588,55 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
           top: 12, right: 14,
           child: Column(
             children: [
-              GestureDetector(
-                onTap: () => _mapKey.currentState?.fitAllMarkers(),
-                child: Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20),
-                      boxShadow: [BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2))]),
-                  child: Icon(Icons.fit_screen_rounded, size: 18, color: context.secondaryText),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => _mapKey.currentState?.fitAllMarkers(),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(color: context.cardBg, borderRadius: BorderRadius.circular(20),
+                        boxShadow: [BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2))]),
+                    child: Icon(Icons.fit_screen_rounded, size: 18, color: context.secondaryText),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => GhostBottomSheet.show(context),
-                child: Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(
-                    color: ghostMode ? PointColors.accent : context.cardBg, borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      if (ghostMode) const BoxShadow(color: PointColors.accentGlow, blurRadius: 10, offset: Offset(0, 2)),
-                      if (!ghostMode) BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2)),
-                    ],
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => GhostBottomSheet.show(context),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: ghostMode ? PointColors.accent : context.cardBg, borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        if (ghostMode) const BoxShadow(color: PointColors.accentGlow, blurRadius: 10, offset: Offset(0, 2)),
+                        if (!ghostMode) BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2)),
+                      ],
+                    ),
+                    child: Center(child: Icon(Icons.visibility_off_rounded, size: ghostMode ? 18 : 16, color: ghostMode ? Colors.white : context.secondaryText)),
                   ),
-                  child: Center(child: Text('\u{1F47B}', style: TextStyle(fontSize: ghostMode ? 18 : 16))),
                 ),
               ),
               const SizedBox(height: 8),
-              GestureDetector(
-                onTap: () => setState(() => _showTrails = !_showTrails),
-                child: Container(
-                  width: 40, height: 40,
-                  decoration: BoxDecoration(
-                    color: _showTrails ? PointColors.accent : context.cardBg, borderRadius: BorderRadius.circular(20),
-                    boxShadow: [
-                      if (_showTrails) const BoxShadow(color: PointColors.accentGlow, blurRadius: 10, offset: Offset(0, 2)),
-                      if (!_showTrails) BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2)),
-                    ],
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => setState(() => _showTrails = !_showTrails),
+                  borderRadius: BorderRadius.circular(20),
+                  child: Container(
+                    width: 40, height: 40,
+                    decoration: BoxDecoration(
+                      color: _showTrails ? PointColors.accent : context.cardBg, borderRadius: BorderRadius.circular(20),
+                      boxShadow: [
+                        if (_showTrails) const BoxShadow(color: PointColors.accentGlow, blurRadius: 10, offset: Offset(0, 2)),
+                        if (!_showTrails) BoxShadow(color: context.shadowClr, blurRadius: 8, offset: const Offset(0, 2)),
+                      ],
+                    ),
+                    child: Icon(Icons.timeline, size: 18, color: _showTrails ? Colors.white : PointColors.textSecondary),
                   ),
-                  child: Icon(Icons.timeline, size: 18, color: _showTrails ? Colors.white : PointColors.textSecondary),
                 ),
               ),
             ],
@@ -678,12 +710,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   Widget _tabItem(int index, IconData icon, IconData activeIcon, String label, {int badge = 0}) {
     final active = _currentTab == index;
     return Expanded(
-      child: GestureDetector(
+      child: InkWell(
         onTap: () {
           HapticFeedback.selectionClick();
           setState(() => _currentTab = index);
         },
-        behavior: HitTestBehavior.opaque,
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [

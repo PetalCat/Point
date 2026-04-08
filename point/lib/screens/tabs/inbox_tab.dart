@@ -218,14 +218,17 @@ class InboxTab extends ConsumerWidget {
     final isAccent = color == PointColors.accent;
     return Padding(
       padding: const EdgeInsets.only(right: 8),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-          decoration: BoxDecoration(
-            color: isAccent ? PointColors.accent : context.subtleBg,
-            borderRadius: BorderRadius.circular(10),
-          ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(10),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
+            decoration: BoxDecoration(
+              color: isAccent ? PointColors.accent : context.subtleBg,
+              borderRadius: BorderRadius.circular(10),
+            ),
           child: Text(
             label,
             style: TextStyle(
@@ -234,6 +237,7 @@ class InboxTab extends ConsumerWidget {
               color: isAccent ? Colors.white : PointColors.textSecondary,
             ),
           ),
+        ),
         ),
       ),
     );

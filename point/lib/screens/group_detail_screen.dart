@@ -169,23 +169,27 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
               ),
               const Spacer(),
               if (_isAdmin || group.membersCanInvite) ...[
-                GestureDetector(
-                  onTap: _showInviteSheet,
-                  child: Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3F51FF),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: const Text(
-                      '+ Invite',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 12,
-                        fontWeight: FontWeight.w700,
+                Material(
+                  color: Colors.transparent,
+                  child: InkWell(
+                    onTap: _showInviteSheet,
+                    borderRadius: BorderRadius.circular(10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 6,
+                      ),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3F51FF),
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      child: const Text(
+                        '+ Invite',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
                     ),
                   ),
@@ -360,22 +364,26 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
           // Leave group
           const SizedBox(height: 24),
           if (!_isOwner)
-            GestureDetector(
-              onTap: _leaveGroup,
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: context.cardBg,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: context.inputBorder),
-                ),
-                child: const Center(
-                  child: Text(
-                    'Leave Group',
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFFE85D5D),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _leaveGroup,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.all(14),
+                  decoration: BoxDecoration(
+                    color: context.cardBg,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: context.inputBorder),
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'Leave Group',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFE85D5D),
+                      ),
                     ),
                   ),
                 ),
@@ -434,7 +442,8 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
       children: [
         Row(
           children: [
-            const Text('👻 ', style: TextStyle(fontSize: 14)),
+            Icon(Icons.visibility_off_rounded, size: 14, color: isGhosted ? PointColors.accent : context.primaryText),
+            const SizedBox(width: 4),
             Text(
               'Ghost Visibility',
               style: TextStyle(
@@ -812,7 +821,7 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
                   style: TextStyle(fontSize: 12, color: Color(0xFF999999)),
                 ),
                 const SizedBox(height: 4),
-                GestureDetector(
+                InkWell(
                   onTap: () {
                     Clipboard.setData(ClipboardData(text: code));
                     ScaffoldMessenger.of(context).showSnackBar(

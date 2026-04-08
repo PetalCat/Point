@@ -20,7 +20,8 @@ class GhostRulesScreen extends ConsumerWidget {
         surfaceTintColor: Colors.transparent,
         title: Row(
           children: [
-            const Text('\u{1F47B} ', style: TextStyle(fontSize: 20)),
+            Icon(Icons.visibility_off_rounded, size: 20, color: context.primaryText),
+            const SizedBox(width: 4),
             Text('Ghost Rules',
                 style: TextStyle(
                     fontWeight: FontWeight.w800, color: context.primaryText)),
@@ -86,7 +87,7 @@ class GhostRulesScreen extends ConsumerWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
-              child: Text(isActive ? '\u{1F47B}' : '\u{1F441}\uFE0F', style: const TextStyle(fontSize: 22)),
+              child: Icon(isActive ? Icons.visibility_off_rounded : Icons.visibility_rounded, size: 22, color: isActive ? PointColors.accent : context.secondaryText),
             ),
           ),
           const SizedBox(width: 12),
@@ -334,15 +335,15 @@ class GhostRulesScreen extends ConsumerWidget {
                 style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)),
             const SizedBox(height: 16),
-            _addRuleOption(ctx, '\u{1F4C5}', 'Schedule', 'Ghost on specific days & times', () {
+            _addRuleOption(ctx, Icons.calendar_today_rounded, 'Schedule', 'Ghost on specific days & times', () {
               Navigator.pop(ctx);
               _createScheduleRule(context, ghostNotifier, groups);
             }),
-            _addRuleOption(ctx, '\u{1F4CD}', 'Location', 'Ghost when at a place', () {
+            _addRuleOption(ctx, Icons.location_on_rounded, 'Location', 'Ghost when at a place', () {
               Navigator.pop(ctx);
               _createLocationRule(context, ghostNotifier);
             }),
-            _addRuleOption(ctx, '\u{1FAAB}', 'Low Battery', 'Ghost when battery is low', () {
+            _addRuleOption(ctx, Icons.battery_alert_rounded, 'Low Battery', 'Ghost when battery is low', () {
               Navigator.pop(ctx);
               _createBatteryRule(context, ghostNotifier);
             }),
@@ -353,12 +354,12 @@ class GhostRulesScreen extends ConsumerWidget {
     );
   }
 
-  Widget _addRuleOption(BuildContext ctx, String emoji, String title, String desc, VoidCallback onTap) {
+  Widget _addRuleOption(BuildContext ctx, IconData icon, String title, String desc, VoidCallback onTap) {
     return Material(
       color: Colors.transparent,
       child: ListTile(
         contentPadding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-        leading: Text(emoji, style: const TextStyle(fontSize: 24)),
+        leading: Icon(icon, size: 24, color: ctx.primaryText),
         title: Text(title,
             style: TextStyle(fontWeight: FontWeight.w700, color: ctx.primaryText)),
         subtitle: Text(desc,

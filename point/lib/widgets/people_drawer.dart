@@ -67,7 +67,7 @@ class PeopleDrawer extends ConsumerWidget {
           if (listWidgets.isNotEmpty && listWidgets.last is! _SectionLabel)
             listWidgets.add(const _Divider());
           listWidgets.add(
-            GestureDetector(
+            InkWell(
               onTap: () => onPersonTap?.call(people[i].userId),
               child: PersonRow(person: people[i]),
             ),
@@ -160,7 +160,7 @@ class _GroupRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
+    return InkWell(
       onTap: () {
         Navigator.push(
           context,
@@ -270,8 +270,11 @@ class _SharingToggle extends StatelessWidget {
   Widget build(BuildContext context) {
     final ghost = locationState.isGhostMode;
 
-    return GestureDetector(
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
       onTap: () => GhostBottomSheet.show(context),
+      borderRadius: BorderRadius.circular(22),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
@@ -291,9 +294,10 @@ class _SharingToggle extends StatelessWidget {
         child: Row(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              ghost ? '\u{1F47B}' : '\u{1F4CD}',
-              style: const TextStyle(fontSize: 12),
+            Icon(
+              ghost ? Icons.visibility_off_rounded : Icons.location_on_rounded,
+              size: 12,
+              color: Colors.white,
             ),
             const SizedBox(width: 5),
             Text(
@@ -307,6 +311,7 @@ class _SharingToggle extends StatelessWidget {
           ],
         ),
       ),
+    ),
     );
   }
 }

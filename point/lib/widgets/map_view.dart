@@ -2,9 +2,14 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart' as fm;
+import 'package:geolocator/geolocator.dart' show Position;
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
+import 'package:latlong2/latlong.dart' as ll;
 
+import '../config.dart';
+import '../models/map_provider.dart';
 import '../providers.dart';
 import '../services/location_service.dart';
 import '../theme.dart';
@@ -26,6 +31,7 @@ class MapView extends ConsumerStatefulWidget {
 
 class MapViewState extends ConsumerState<MapView> {
   GoogleMapController? _controller;
+  fm.MapController? _fmController;
   bool _initialFitDone = false;
   final Map<String, BitmapDescriptor> _iconCache = {};
   final Map<String, LatLng> _animatedPositions = {};
@@ -44,8 +50,8 @@ class MapViewState extends ConsumerState<MapView> {
       locationNotifier.setTrackingMode(TrackingMode.realtime);
       locationNotifier.startViewing(userId); // nudge for fresh location
       final target = _targetPositions[userId];
-      if (target != null && _controller != null) {
-        _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
+      if (target != null) {
+        _animateCameraTo(target, zoom: 15);
       }
     } else {
       locationNotifier.setTrackingMode(TrackingMode.adaptive);
@@ -89,7 +95,14 @@ class MapViewState extends ConsumerState<MapView> {
         _animatedPositions.containsKey(_followingUserId) &&
         changed) {
       final pos = _animatedPositions[_followingUserId!]!;
-      _controller?.moveCamera(CameraUpdate.newLatLng(pos));
+      if (_controller != null) {
+        _controller!.moveCamera(CameraUpdate.newLatLng(pos));
+      } else if (_fmController != null) {
+        _fmController!.move(
+          ll.LatLng(pos.latitude, pos.longitude),
+          _fmController!.camera.zoom,
+        );
+      }
     }
     if (changed) setState(() {});
   }
@@ -111,9 +124,7 @@ class MapViewState extends ConsumerState<MapView> {
     if (allPoints.length > 1) {
       _fitBounds(allPoints);
     } else if (allPoints.length == 1) {
-      _controller?.animateCamera(
-        CameraUpdate.newLatLngZoom(allPoints.first, 15),
-      );
+      _animateCameraTo(allPoints.first, zoom: 15);
     }
   }
 
@@ -297,14 +308,13 @@ class MapViewState extends ConsumerState<MapView> {
     } // end showTrails
 
     // Auto-fit on first load — includes "me" if we have a position
-    if (_controller != null && !_initialFitDone && allPoints.isNotEmpty) {
+    final hasController = _controller != null || _fmController != null;
+    if (hasController && !_initialFitDone && allPoints.isNotEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (allPoints.length > 1) {
           _fitBounds(allPoints);
         } else {
-          _controller?.animateCamera(
-            CameraUpdate.newLatLngZoom(allPoints.first, 15),
-          );
+          _animateCameraTo(allPoints.first, zoom: 15);
         }
         _initialFitDone = true;
       });
@@ -322,6 +332,10 @@ class MapViewState extends ConsumerState<MapView> {
     // Build polygons for saved places
     final polygons = <Polygon>{};
 
+    // Saved-place data in provider-neutral form for flutter_map
+    final placeCircleData = <_CircleData>[];
+    final placePolygonData = <_PolygonData>[];
+
     // Draw saved places
     for (final place in locationState.places) {
       final placeId = place['id'] as String? ?? '';
@@ -337,22 +351,28 @@ class MapViewState extends ConsumerState<MapView> {
           pts = raw;
         }
         if (pts != null && pts.length >= 3) {
+          final latLngs = pts
+              .map(
+                (p) => LatLng(
+                  (p['lat'] as num).toDouble(),
+                  (p['lon'] as num).toDouble(),
+                ),
+              )
+              .toList();
           polygons.add(
             Polygon(
               polygonId: PolygonId('place_$placeId'),
-              points: pts
-                  .map(
-                    (p) => LatLng(
-                      (p['lat'] as num).toDouble(),
-                      (p['lon'] as num).toDouble(),
-                    ),
-                  )
-                  .toList(),
+              points: latLngs,
               strokeColor: PointColors.accent.withValues(alpha: 0.3),
               fillColor: PointColors.accent.withValues(alpha: 0.04),
               strokeWidth: 2,
             ),
           );
+          placePolygonData.add(_PolygonData(
+            points: latLngs,
+            strokeColor: PointColors.accent.withValues(alpha: 0.3),
+            fillColor: PointColors.accent.withValues(alpha: 0.04),
+          ));
         }
       } else {
         final placeLat = (place['lat'] as num?)?.toDouble();
@@ -369,6 +389,13 @@ class MapViewState extends ConsumerState<MapView> {
               strokeWidth: 2,
             ),
           );
+          placeCircleData.add(_CircleData(
+            lat: placeLat,
+            lon: placeLon,
+            radiusMeters: radius,
+            strokeColor: PointColors.accent.withValues(alpha: 0.3),
+            fillColor: PointColors.accent.withValues(alpha: 0.04),
+          ));
         }
       }
     }
@@ -376,8 +403,41 @@ class MapViewState extends ConsumerState<MapView> {
     // Add precision-based circles for approximate/city people
     circles.addAll(precisionCircles);
 
-    final isDark = Theme.of(context).brightness == Brightness.dark;
+    // --- Provider switch ---
+    if (AppConfig.mapProvider == MapProviderType.google) {
+      return _buildGoogleMap(
+        context: context,
+        initialTarget: initialTarget,
+        markers: markers,
+        polylines: polylines,
+        circles: circles,
+        polygons: polygons,
+      );
+    } else {
+      return _buildFlutterMap(
+        context: context,
+        initialTarget: initialTarget,
+        people: people,
+        myPos: myPos,
+        auth: auth,
+        precisionCircles: precisionCircles,
+        polylines: polylines,
+        placeCircleData: placeCircleData,
+        placePolygonData: placePolygonData,
+      );
+    }
+  }
 
+  // ─── Google Maps renderer (existing, optimized path) ───
+  Widget _buildGoogleMap({
+    required BuildContext context,
+    required LatLng initialTarget,
+    required Set<Marker> markers,
+    required Set<Polyline> polylines,
+    required Set<Circle> circles,
+    required Set<Polygon> polygons,
+  }) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
     return GoogleMap(
       initialCameraPosition: CameraPosition(target: initialTarget, zoom: 14),
       myLocationEnabled: false,
@@ -397,6 +457,187 @@ class MapViewState extends ConsumerState<MapView> {
     );
   }
 
+  // ─── flutter_map renderer (OSM / Mapbox / self-hosted) ───
+  Widget _buildFlutterMap({
+    required BuildContext context,
+    required LatLng initialTarget,
+    required Map<String, PersonLocation> people,
+    required Position? myPos,
+    required AuthState auth,
+    required Set<Circle> precisionCircles,
+    required Set<Polyline> polylines,
+    required List<_CircleData> placeCircleData,
+    required List<_PolygonData> placePolygonData,
+  }) {
+    // Determine tile URL
+    String tileUrl;
+    switch (AppConfig.mapProvider) {
+      case MapProviderType.osm:
+        tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        break;
+      case MapProviderType.mapbox:
+        final token = AppConfig.mapboxToken ?? '';
+        tileUrl = 'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}@2x?access_token=$token';
+        break;
+      case MapProviderType.selfHosted:
+        tileUrl = AppConfig.selfHostedTileUrl ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        final token = AppConfig.selfHostedToken;
+        if (token != null && token.isNotEmpty) {
+          tileUrl += '${tileUrl.contains('?') ? '&' : '?'}access_token=$token';
+        }
+        break;
+      default:
+        tileUrl = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+    }
+
+    // Build flutter_map markers as real widgets (resolution-independent)
+    final fmMarkers = <fm.Marker>[];
+
+    // "Me" marker
+    if (myPos != null) {
+      final animatedMyLatLng = _animatedPositions['_me'] ??
+          LatLng(myPos.latitude, myPos.longitude);
+      final myName = auth.displayName ?? auth.userId?.split('@').first ?? 'Me';
+      final myInitial = myName.isNotEmpty ? myName[0].toUpperCase() : 'M';
+
+      fmMarkers.add(fm.Marker(
+        point: ll.LatLng(animatedMyLatLng.latitude, animatedMyLatLng.longitude),
+        width: 44,
+        height: 44,
+        child: _FlutterMapCircleMarker(
+          initial: myInitial,
+          color: const Color(0xFF1A1A1A),
+          isMe: true,
+          isStale: false,
+          online: true,
+        ),
+      ));
+    }
+
+    // People markers
+    for (final entry in people.entries) {
+      final person = entry.value;
+      if (person.lat == 0 && person.lon == 0) continue;
+      if (person.precision == 'city') continue; // city = no visible dot
+
+      final pos = _animatedPositions[person.userId] ??
+          LatLng(person.lat, person.lon);
+      final name = person.userId.split('@').first;
+      final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+      final color = _colorForUser(person.userId);
+      final isStale =
+          (DateTime.now().millisecondsSinceEpoch ~/ 1000 - person.timestamp) > 7200;
+
+      fmMarkers.add(fm.Marker(
+        point: ll.LatLng(pos.latitude, pos.longitude),
+        width: 36,
+        height: 36,
+        child: GestureDetector(
+          onTap: () => widget.onPersonTap?.call(person.userId),
+          child: _FlutterMapCircleMarker(
+            initial: initial,
+            color: color,
+            isMe: false,
+            isStale: isStale,
+            online: person.online,
+          ),
+        ),
+      ));
+    }
+
+    // Build flutter_map circle markers from precision circles + saved places
+    final fmCircles = <fm.CircleMarker>[];
+    for (final c in precisionCircles) {
+      // Use a pixel approximation: precision circles are 500m or 5000m.
+      // flutter_map CircleMarker uses pixels, so we use useRadiusInMeter.
+      fmCircles.add(fm.CircleMarker(
+        point: ll.LatLng(c.center.latitude, c.center.longitude),
+        radius: c.radius, // meters
+        useRadiusInMeter: true,
+        color: c.fillColor,
+        borderColor: c.strokeColor,
+        borderStrokeWidth: c.strokeWidth.toDouble(),
+      ));
+    }
+    for (final cd in placeCircleData) {
+      fmCircles.add(fm.CircleMarker(
+        point: ll.LatLng(cd.lat, cd.lon),
+        radius: cd.radiusMeters,
+        useRadiusInMeter: true,
+        color: cd.fillColor,
+        borderColor: cd.strokeColor,
+        borderStrokeWidth: 2,
+      ));
+    }
+
+    // Build flutter_map polylines from trail polylines
+    final fmPolylines = <fm.Polyline>[];
+    for (final p in polylines) {
+      fmPolylines.add(fm.Polyline(
+        points: p.points.map((pt) => ll.LatLng(pt.latitude, pt.longitude)).toList(),
+        color: p.color,
+        strokeWidth: p.width.toDouble(),
+      ));
+    }
+
+    // Build flutter_map polygons from saved places
+    final fmPolygons = <fm.Polygon>[];
+    for (final pd in placePolygonData) {
+      fmPolygons.add(fm.Polygon(
+        points: pd.points.map((pt) => ll.LatLng(pt.latitude, pt.longitude)).toList(),
+        color: pd.fillColor,
+        borderColor: pd.strokeColor,
+        borderStrokeWidth: 2,
+      ));
+    }
+
+    _fmController ??= fm.MapController();
+
+    // Deliver controller on first build
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_fmController != null && !_initialFitDone) {
+        // controller is ready
+      }
+    });
+
+    return fm.FlutterMap(
+      mapController: _fmController!,
+      options: fm.MapOptions(
+        initialCenter: ll.LatLng(initialTarget.latitude, initialTarget.longitude),
+        initialZoom: 14,
+        onLongPress: widget.onLongPress != null
+            ? (_, point) => widget.onLongPress!(LatLng(point.latitude, point.longitude))
+            : null,
+      ),
+      children: [
+        fm.TileLayer(
+          urlTemplate: tileUrl,
+          userAgentPackageName: 'dev.petalcat.point',
+        ),
+        if (fmCircles.isNotEmpty)
+          fm.CircleLayer(circles: fmCircles),
+        if (fmPolylines.isNotEmpty)
+          fm.PolylineLayer(polylines: fmPolylines),
+        if (fmPolygons.isNotEmpty)
+          fm.PolygonLayer(polygons: fmPolygons),
+        if (fmMarkers.isNotEmpty)
+          fm.MarkerLayer(markers: fmMarkers),
+      ],
+    );
+  }
+
+  /// Animate camera to a position, works with either controller.
+  void _animateCameraTo(LatLng target, {double zoom = 15}) {
+    if (_controller != null) {
+      _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, zoom));
+    } else if (_fmController != null) {
+      _fmController!.move(
+        ll.LatLng(target.latitude, target.longitude),
+        zoom,
+      );
+    }
+  }
+
   LatLng _averagePoint(List<LatLng> points) {
     double lat = 0, lon = 0;
     for (final p in points) {
@@ -407,7 +648,7 @@ class MapViewState extends ConsumerState<MapView> {
   }
 
   void _fitBounds(List<LatLng> points) {
-    if (points.isEmpty || _controller == null) return;
+    if (points.isEmpty) return;
 
     double minLat = points.first.latitude, maxLat = points.first.latitude;
     double minLon = points.first.longitude, maxLon = points.first.longitude;
@@ -419,15 +660,27 @@ class MapViewState extends ConsumerState<MapView> {
       if (p.longitude > maxLon) maxLon = p.longitude;
     }
 
-    _controller!.animateCamera(
-      CameraUpdate.newLatLngBounds(
-        LatLngBounds(
-          southwest: LatLng(minLat, minLon),
-          northeast: LatLng(maxLat, maxLon),
+    if (_controller != null) {
+      _controller!.animateCamera(
+        CameraUpdate.newLatLngBounds(
+          LatLngBounds(
+            southwest: LatLng(minLat, minLon),
+            northeast: LatLng(maxLat, maxLon),
+          ),
+          80,
         ),
-        80,
-      ),
-    );
+      );
+    } else if (_fmController != null) {
+      _fmController!.fitCamera(
+        fm.CameraFit.bounds(
+          bounds: fm.LatLngBounds(
+            ll.LatLng(minLat, minLon),
+            ll.LatLng(maxLat, maxLon),
+          ),
+          padding: const EdgeInsets.all(80),
+        ),
+      );
+    }
   }
 
   Future<BitmapDescriptor> _getCircleIcon(
@@ -637,6 +890,134 @@ class MapViewState extends ConsumerState<MapView> {
   void dispose() {
     _animationTimer?.cancel();
     _controller?.dispose();
+    _fmController?.dispose();
     super.dispose();
+  }
+}
+
+// ─── Helper data classes ───
+
+class _CircleData {
+  final double lat;
+  final double lon;
+  final double radiusMeters;
+  final Color strokeColor;
+  final Color fillColor;
+  const _CircleData({
+    required this.lat,
+    required this.lon,
+    required this.radiusMeters,
+    required this.strokeColor,
+    required this.fillColor,
+  });
+}
+
+class _PolygonData {
+  final List<LatLng> points;
+  final Color strokeColor;
+  final Color fillColor;
+  const _PolygonData({
+    required this.points,
+    required this.strokeColor,
+    required this.fillColor,
+  });
+}
+
+// ─── Resolution-independent circle marker widget for flutter_map ───
+
+class _FlutterMapCircleMarker extends StatelessWidget {
+  final String initial;
+  final Color color;
+  final bool isMe;
+  final bool isStale;
+  final bool online;
+
+  const _FlutterMapCircleMarker({
+    required this.initial,
+    required this.color,
+    required this.isMe,
+    required this.isStale,
+    required this.online,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final size = isMe ? 44.0 : 36.0;
+    final opacity = isStale ? 0.35 : 1.0;
+    final effectiveColor = color.withValues(alpha: opacity);
+    final highlightColor =
+        Color.lerp(color, Colors.white, 0.15)!.withValues(alpha: opacity);
+
+    return SizedBox(
+      width: size,
+      height: size,
+      child: Stack(
+        children: [
+          // Main circle with gradient-like effect
+          Container(
+            width: size,
+            height: size,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              gradient: RadialGradient(
+                center: const Alignment(-0.25, -0.25),
+                radius: 0.75,
+                colors: [highlightColor, effectiveColor],
+              ),
+              border: Border.all(
+                color: Colors.white.withValues(alpha: 0.95 * opacity),
+                width: isMe ? 2.5 : 2.0,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.25 * opacity),
+                  blurRadius: 4,
+                  offset: const Offset(0, 1.5),
+                ),
+                if (!isStale)
+                  BoxShadow(
+                    color: color.withValues(alpha: 0.15),
+                    blurRadius: 8,
+                    spreadRadius: 2,
+                  ),
+              ],
+            ),
+            child: Center(
+              child: Text(
+                initial,
+                style: TextStyle(
+                  color: Colors.white.withValues(alpha: opacity),
+                  fontWeight: FontWeight.w800,
+                  fontSize: isMe ? 16 : 13,
+                  letterSpacing: 0.5,
+                ),
+              ),
+            ),
+          ),
+          // Online indicator dot
+          if (online && !isStale)
+            Positioned(
+              right: 0,
+              bottom: 0,
+              child: Container(
+                width: 10,
+                height: 10,
+                decoration: BoxDecoration(
+                  color: const Color(0xFF22C55E),
+                  shape: BoxShape.circle,
+                  border: Border.all(color: Colors.white, width: 1.5),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.2),
+                      blurRadius: 2,
+                      offset: const Offset(0, 0.5),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }

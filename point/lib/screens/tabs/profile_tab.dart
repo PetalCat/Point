@@ -109,7 +109,7 @@ class ProfileTab extends ConsumerWidget {
                 children: [
                   _statBox(context, '${groups.groups.length}', 'Groups'),
                   const SizedBox(width: 8),
-                  _statBoxAccent('\u{1F4CD}', 'Sharing'),
+                  _statBoxAccent(Icons.location_on_rounded, 'Sharing'),
                 ],
               ),
             ],
@@ -127,7 +127,7 @@ class ProfileTab extends ConsumerWidget {
             children: [
               _toggleRow(
                 context,
-                '\u{1F4CD}',
+                Icons.location_on_rounded,
                 'Location Sharing',
                 'Sharing with ${groups.groups.length} groups',
                 location.isSharing,
@@ -150,7 +150,7 @@ class ProfileTab extends ConsumerWidget {
                 return Column(children: [
               _toggleRow(
                 context,
-                '\u{1F47B}',
+                Icons.visibility_off_rounded,
                 'Ghost Mode',
                 ghost.activeRules.isEmpty
                     ? 'Tap to set up schedules & rules'
@@ -188,13 +188,13 @@ class ProfileTab extends ConsumerWidget {
             children: [
               _infoRow(
                 context,
-                '\u{1F5A5}\uFE0F',
+                Icons.dns_rounded,
                 AppConfig.serverUrl.replaceAll('http://', ''),
                 badge: 'CONNECTED',
                 badgeColor: PointColors.online,
               ),
               _divider(context),
-              _actionRow(context, '\u{1F517}', 'Generate Invite', onTap: () => _generateInvite(context, ref)),
+              _actionRow(context, Icons.link_rounded, 'Generate Invite', onTap: () => _generateInvite(context, ref)),
             ],
           ),
         ),
@@ -217,7 +217,7 @@ class ProfileTab extends ConsumerWidget {
                   : 'System';
               return Column(
                 children: [
-                  GestureDetector(
+                  InkWell(
                     onTap: () {
                       final next = themeState.mode == ThemeMode.system
                           ? ThemeMode.light
@@ -226,26 +226,22 @@ class ProfileTab extends ConsumerWidget {
                           : ThemeMode.system;
                       ref.read(themeProvider.notifier).setMode(next);
                     },
-                    behavior: HitTestBehavior.opaque,
-                    child: _settingRow(context, '\u{1F319}', 'Dark Mode', modeLabel),
+                    child: _settingRow(context, Icons.dark_mode_rounded, 'Dark Mode', modeLabel),
                   ),
                   _divider(context),
-                  GestureDetector(
+                  InkWell(
                     onTap: () => MapProviderPicker.show(context),
-                    behavior: HitTestBehavior.opaque,
-                    child: _settingRow(context, '\u{1F5FA}\uFE0F', 'Map Provider', AppConfig.mapProvider.label),
+                    child: _settingRow(context, Icons.map_rounded, 'Map Provider', AppConfig.mapProvider.label),
                   ),
                   _divider(context),
-                  GestureDetector(
+                  InkWell(
                     onTap: () => _showPushProviderSheet(context),
-                    behavior: HitTestBehavior.opaque,
-                    child: _settingRow(context, '\u{1F514}', 'Push Notifications', AppConfig.pushProvider.label),
+                    child: _settingRow(context, Icons.notifications_rounded, 'Push Notifications', AppConfig.pushProvider.label),
                   ),
                   _divider(context),
-                  GestureDetector(
+                  InkWell(
                     onTap: () => _showChangePasswordSheet(context, ref),
-                    behavior: HitTestBehavior.opaque,
-                    child: _settingRow(context, '\u{1F511}', 'Change Password', ''),
+                    child: _settingRow(context, Icons.key_rounded, 'Change Password', ''),
                   ),
                 ],
               );
@@ -254,46 +250,50 @@ class ProfileTab extends ConsumerWidget {
         ),
 
         // Sign out
-        GestureDetector(
-          onTap: () async {
-            final confirm = await showDialog<bool>(
-              context: context,
-              builder: (ctx) => AlertDialog(
-                title: const Text('Sign Out?'),
-                content: const Text('You will stop sharing your location.'),
-                actions: [
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, false),
-                    child: const Text('Cancel'),
-                  ),
-                  TextButton(
-                    onPressed: () => Navigator.pop(ctx, true),
-                    child: Text(
-                      'Sign Out',
-                      style: TextStyle(color: PointColors.danger),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () async {
+              final confirm = await showDialog<bool>(
+                context: context,
+                builder: (ctx) => AlertDialog(
+                  title: const Text('Sign Out?'),
+                  content: const Text('You will stop sharing your location.'),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancel'),
                     ),
-                  ),
-                ],
+                    TextButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: Text(
+                        'Sign Out',
+                        style: TextStyle(color: PointColors.danger),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+              if (confirm == true && context.mounted) {
+                ref.read(authProvider.notifier).logout();
+              }
+            },
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(14, 20, 14, 0),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: context.cardBg,
+                borderRadius: BorderRadius.circular(14),
               ),
-            );
-            if (confirm == true && context.mounted) {
-              ref.read(authProvider.notifier).logout();
-            }
-          },
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(14, 20, 14, 0),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: context.cardBg,
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Center(
-              child: Text(
-                'Sign Out',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: PointColors.danger,
+              child: const Center(
+                child: Text(
+                  'Sign Out',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: PointColors.danger,
+                  ),
                 ),
               ),
             ),
@@ -301,22 +301,26 @@ class ProfileTab extends ConsumerWidget {
         ),
 
         // Delete account
-        GestureDetector(
-          onTap: () => _showDeleteAccountDialog(context, ref),
-          child: Container(
-            margin: const EdgeInsets.fromLTRB(14, 10, 14, 30),
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: const Color(0x0AFF3B30),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Center(
-              child: Text(
-                'Delete Account',
-                style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
-                  color: PointColors.danger,
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: () => _showDeleteAccountDialog(context, ref),
+            borderRadius: BorderRadius.circular(14),
+            child: Container(
+              margin: const EdgeInsets.fromLTRB(14, 10, 14, 30),
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color: const Color(0x0AFF3B30),
+                borderRadius: BorderRadius.circular(14),
+              ),
+              child: const Center(
+                child: Text(
+                  'Delete Account',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
+                    color: PointColors.danger,
+                  ),
                 ),
               ),
             ),
@@ -377,7 +381,7 @@ class ProfileTab extends ConsumerWidget {
     );
   }
 
-  Widget _statBoxAccent(String icon, String label) {
+  Widget _statBoxAccent(IconData icon, String label) {
     return Expanded(
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 10),
@@ -387,7 +391,7 @@ class ProfileTab extends ConsumerWidget {
         ),
         child: Column(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 14)),
+            Icon(icon, size: 14, color: PointColors.online),
             Text(
               label,
               style: const TextStyle(
@@ -405,7 +409,7 @@ class ProfileTab extends ConsumerWidget {
 
   Widget _toggleRow(
     BuildContext context,
-    String icon,
+    IconData icon,
     String title,
     String subtitle,
     bool value, {
@@ -418,7 +422,7 @@ class ProfileTab extends ConsumerWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 20)),
+            Icon(icon, size: 20, color: context.primaryText),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -470,7 +474,7 @@ class ProfileTab extends ConsumerWidget {
 
   Widget _infoRow(
     BuildContext context,
-    String icon,
+    IconData icon,
     String value, {
     String? badge,
     Color? badgeColor,
@@ -479,7 +483,7 @@ class ProfileTab extends ConsumerWidget {
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Text(icon, style: const TextStyle(fontSize: 16)),
+          Icon(icon, size: 16, color: context.secondaryText),
           const SizedBox(width: 12),
           Text(
             value,
@@ -514,14 +518,14 @@ class ProfileTab extends ConsumerWidget {
     );
   }
 
-  Widget _actionRow(BuildContext context, String icon, String label, {VoidCallback? onTap}) {
-    return GestureDetector(
+  Widget _actionRow(BuildContext context, IconData icon, String label, {VoidCallback? onTap}) {
+    return InkWell(
       onTap: onTap,
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            Text(icon, style: const TextStyle(fontSize: 16)),
+            Icon(icon, size: 16, color: context.primaryText),
             const SizedBox(width: 12),
             Text(
               label,
@@ -539,12 +543,12 @@ class ProfileTab extends ConsumerWidget {
     );
   }
 
-  Widget _settingRow(BuildContext context, String icon, String label, String value) {
+  Widget _settingRow(BuildContext context, IconData icon, String label, String value) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       child: Row(
         children: [
-          Text(icon, style: const TextStyle(fontSize: 16)),
+          Icon(icon, size: 16, color: context.primaryText),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
@@ -598,18 +602,21 @@ class ProfileTab extends ConsumerWidget {
                 const SizedBox(height: 16),
                 ...PushProvider.values.map((provider) {
                   final isSelected = selected == provider;
-                  return GestureDetector(
-                    onTap: () => setSheetState(() => selected = provider),
-                    child: Container(
-                      margin: const EdgeInsets.only(bottom: 8),
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: isSelected ? PointColors.accent.withValues(alpha: 0.08) : context.cardBg,
-                        borderRadius: BorderRadius.circular(14),
-                        border: Border.all(
-                          color: isSelected ? PointColors.accent.withValues(alpha: 0.4) : context.dividerClr,
-                          width: isSelected ? 2 : 1,
-                        ),
+                  return Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: () => setSheetState(() => selected = provider),
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        margin: const EdgeInsets.only(bottom: 8),
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: isSelected ? PointColors.accent.withValues(alpha: 0.08) : context.cardBg,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                            color: isSelected ? PointColors.accent.withValues(alpha: 0.4) : context.dividerClr,
+                            width: isSelected ? 2 : 1,
+                          ),
                       ),
                       child: Row(
                         children: [
@@ -637,6 +644,7 @@ class ProfileTab extends ConsumerWidget {
                           if (isSelected) const Icon(Icons.check_circle, color: PointColors.accent, size: 22),
                         ],
                       ),
+                    ),
                     ),
                   );
                 }),

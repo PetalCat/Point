@@ -46,30 +46,34 @@ class _SharingTabState extends ConsumerState<SharingTab> {
               ),
             ),
             const Spacer(),
-            GestureDetector(
-              onTap: _showAddShareDialog,
-              child: Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: PointColors.accent,
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: [
-                    const BoxShadow(
-                      color: PointColors.accentGlow,
-                      blurRadius: 12,
-                      offset: Offset(0, 3),
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: _showAddShareDialog,
+                borderRadius: BorderRadius.circular(14),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  decoration: BoxDecoration(
+                    color: PointColors.accent,
+                    borderRadius: BorderRadius.circular(14),
+                    boxShadow: [
+                      const BoxShadow(
+                        color: PointColors.accentGlow,
+                        blurRadius: 12,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: const Text(
+                    '+ Add',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w800,
                     ),
-                  ],
-                ),
-                child: const Text(
-                  '+ Add',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 12,
-                    fontWeight: FontWeight.w800,
                   ),
                 ),
               ),
@@ -87,16 +91,19 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                 : 0;
             return Padding(
               padding: const EdgeInsets.only(right: 6),
-              child: GestureDetector(
-                onTap: () => setState(() => _sharingFilter = i),
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 7,
-                  ),
-                  decoration: BoxDecoration(
-                    color: active ? PointColors.accent : context.cardBg,
-                    borderRadius: BorderRadius.circular(18),
+              child: Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: () => setState(() => _sharingFilter = i),
+                  borderRadius: BorderRadius.circular(18),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 14,
+                      vertical: 7,
+                    ),
+                    decoration: BoxDecoration(
+                      color: active ? PointColors.accent : context.cardBg,
+                      borderRadius: BorderRadius.circular(18),
                     boxShadow: [
                       if (active)
                         const BoxShadow(
@@ -150,6 +157,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                   ),
                 ),
               ),
+              ),
             );
           }),
         ),
@@ -202,60 +210,68 @@ class _SharingTabState extends ConsumerState<SharingTab> {
             child: Row(
               children: [
                 Expanded(
-                  child: GestureDetector(
-                    onTap: _showJoinByCodeDialog,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: context.cardBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(
-                            Icons.qr_code,
-                            size: 16,
-                            color: Color(0xFF3F51FF),
-                          ),
-                          SizedBox(width: 6),
-                          Text(
-                            'Join by Code',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _showJoinByCodeDialog,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: context.cardBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(
+                              Icons.qr_code,
+                              size: 16,
                               color: Color(0xFF3F51FF),
                             ),
-                          ),
-                        ],
+                            SizedBox(width: 6),
+                            Text(
+                              'Join by Code',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF3F51FF),
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
                 Expanded(
-                  child: GestureDetector(
-                    onTap: _showCreateGroupDialog,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      decoration: BoxDecoration(
-                        color: context.cardBg,
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: const Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(Icons.add, size: 16, color: Color(0xFF3F51FF)),
-                          SizedBox(width: 6),
-                          Text(
-                            'New Group',
-                            style: TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w700,
-                              color: Color(0xFF3F51FF),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _showCreateGroupDialog,
+                      borderRadius: BorderRadius.circular(12),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: context.cardBg,
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Icon(Icons.add, size: 16, color: Color(0xFF3F51FF)),
+                            SizedBox(width: 6),
+                            Text(
+                              'New Group',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w700,
+                                color: Color(0xFF3F51FF),
+                              ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -351,15 +367,18 @@ class _SharingTabState extends ConsumerState<SharingTab> {
   ) {
     final userId = share['user_id'] as String? ?? '';
     final name = userId.split('@').first;
-    return GestureDetector(
-      onTap: () => _showPersonSheet(userId),
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-        decoration: BoxDecoration(
-          color: context.cardBg,
-          borderRadius: BorderRadius.circular(16),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => _showPersonSheet(userId),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 8),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: context.cardBg,
+            borderRadius: BorderRadius.circular(16),
+          ),
         child: Row(
           children: [
             Container(
@@ -419,6 +438,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -541,16 +561,19 @@ class _SharingTabState extends ConsumerState<SharingTab> {
     bool danger = false,
   }) {
     final color = danger ? PointColors.danger : context.primaryText;
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-        margin: const EdgeInsets.only(bottom: 4),
-        decoration: BoxDecoration(
-          color: danger ? PointColors.danger.withValues(alpha: 0.1) : context.subtleBg,
-          borderRadius: BorderRadius.circular(14),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(14),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
+          margin: const EdgeInsets.only(bottom: 4),
+          decoration: BoxDecoration(
+            color: danger ? PointColors.danger.withValues(alpha: 0.1) : context.subtleBg,
+            borderRadius: BorderRadius.circular(14),
+          ),
         child: Row(
           children: [
             Icon(icon, size: 20, color: color),
@@ -565,6 +588,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -623,39 +647,47 @@ class _SharingTabState extends ConsumerState<SharingTab> {
               ],
             ),
           ),
-          GestureDetector(
-            onTap: () => ref.read(sharingProvider.notifier).rejectRequest(requestId),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: context.subtleBg,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                'Reject',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: PointColors.textSecondary,
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => ref.read(sharingProvider.notifier).rejectRequest(requestId),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: context.subtleBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Reject',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: PointColors.textSecondary,
+                  ),
                 ),
               ),
             ),
           ),
           const SizedBox(width: 6),
-          GestureDetector(
-            onTap: () => ref.read(sharingProvider.notifier).acceptRequest(requestId),
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: PointColors.accent,
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: const Text(
-                'Accept',
-                style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  color: Colors.white,
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: () => ref.read(sharingProvider.notifier).acceptRequest(requestId),
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: PointColors.accent,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Text(
+                  'Accept',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
                 ),
               ),
             ),
@@ -732,20 +764,23 @@ class _SharingTabState extends ConsumerState<SharingTab> {
   }
 
   Widget _buildGroupCard(dynamic g, GroupState groups) {
-    return GestureDetector(
-      onTap: () async {
-        await Navigator.push(
-          context,
-          MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: g.id)),
-        );
-        ref.read(groupProvider.notifier).loadGroups();
-      },
-      child: Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        decoration: BoxDecoration(
-          color: context.cardBg,
-          borderRadius: BorderRadius.circular(18),
-        ),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () async {
+          await Navigator.push(
+            context,
+            MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: g.id)),
+          );
+          ref.read(groupProvider.notifier).loadGroups();
+        },
+        borderRadius: BorderRadius.circular(18),
+        child: Container(
+          margin: const EdgeInsets.only(bottom: 10),
+          decoration: BoxDecoration(
+            color: context.cardBg,
+            borderRadius: BorderRadius.circular(18),
+          ),
         child: Column(
           children: [
             Padding(
@@ -848,6 +883,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
             ),
           ],
         ),
+      ),
       ),
     );
   }
@@ -1068,30 +1104,34 @@ class _SharingTabState extends ConsumerState<SharingTab> {
     ValueChanged<int> onSelect,
   ) {
     final active = value == selected;
-    return GestureDetector(
-      onTap: () => onSelect(value),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 150),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
-        decoration: BoxDecoration(
-          color: active ? PointColors.accent : context.subtleBg,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: active
-              ? [
-                  const BoxShadow(
-                    color: PointColors.accentGlow,
-                    blurRadius: 10,
-                    offset: Offset(0, 2),
-                  ),
-                ]
-              : null,
-        ),
-        child: Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w700,
-            color: active ? Colors.white : context.secondaryText,
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: () => onSelect(value),
+        borderRadius: BorderRadius.circular(12),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+          decoration: BoxDecoration(
+            color: active ? PointColors.accent : context.subtleBg,
+            borderRadius: BorderRadius.circular(12),
+            boxShadow: active
+                ? [
+                    const BoxShadow(
+                      color: PointColors.accentGlow,
+                      blurRadius: 10,
+                      offset: Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w700,
+              color: active ? Colors.white : context.secondaryText,
+            ),
           ),
         ),
       ),

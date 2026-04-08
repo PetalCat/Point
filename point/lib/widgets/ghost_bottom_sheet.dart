@@ -46,7 +46,7 @@ class GhostBottomSheet extends ConsumerWidget {
           // Header with toggle
           Row(
             children: [
-              Text('\u{1F47B}', style: const TextStyle(fontSize: 28)),
+              Icon(Icons.visibility_off_rounded, size: 28, color: context.primaryText),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -82,24 +82,27 @@ class GhostBottomSheet extends ConsumerWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              _timerChip(context, ref, ghost, '1h', const Duration(hours: 1)),
+              _timerChip(context, ref, ghost, Text('1h', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)), const Duration(hours: 1)),
               const SizedBox(width: 6),
-              _timerChip(context, ref, ghost, '4h', const Duration(hours: 4)),
+              _timerChip(context, ref, ghost, Text('4h', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)), const Duration(hours: 4)),
               const SizedBox(width: 6),
-              _timerChip(context, ref, ghost, '\u{1F319}', const Duration(hours: 8), label: 'Tonight'),
+              _timerChip(context, ref, ghost, Icon(Icons.dark_mode_rounded, size: 18, color: context.primaryText), const Duration(hours: 8), label: 'Tonight'),
               const SizedBox(width: 6),
-              _timerChip(context, ref, ghost, '\u{1F4C5}', const Duration(hours: 24), label: 'Tomorrow'),
+              _timerChip(context, ref, ghost, Icon(Icons.calendar_today_rounded, size: 18, color: context.primaryText), const Duration(hours: 24), label: 'Tomorrow'),
             ],
           ),
           const SizedBox(height: 6),
           Row(
             children: [
-              _timerChip(context, ref, ghost, '\u221E', Duration.zero, label: 'Indefinite', indefinite: true),
+              _timerChip(context, ref, ghost, Icon(Icons.all_inclusive_rounded, size: 18, color: context.primaryText), Duration.zero, label: 'Indefinite', indefinite: true),
               const SizedBox(width: 6),
               if (ghost.hasActiveTimer)
                 Expanded(
-                  child: GestureDetector(
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
                     onTap: () => ref.read(ghostProvider.notifier).clearTimer(),
+                    borderRadius: BorderRadius.circular(12),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
@@ -113,6 +116,7 @@ class GhostBottomSheet extends ConsumerWidget {
                                 fontSize: 12, fontWeight: FontWeight.w700, color: PointColors.danger)),
                       ),
                     ),
+                  ),
                   ),
                 ),
             ],
@@ -198,10 +202,12 @@ class GhostBottomSheet extends ConsumerWidget {
     );
   }
 
-  Widget _timerChip(BuildContext context, WidgetRef ref, GhostState ghost, String display,
+  Widget _timerChip(BuildContext context, WidgetRef ref, GhostState ghost, Widget display,
       Duration duration, {String? label, bool indefinite = false}) {
     return Expanded(
-      child: GestureDetector(
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
         onTap: () {
           if (indefinite) {
             if (!ghost.isGlobalGhostOn) ref.read(ghostProvider.notifier).toggleGlobalGhost();
@@ -209,6 +215,7 @@ class GhostBottomSheet extends ConsumerWidget {
             ref.read(ghostProvider.notifier).setGhostTimer(duration);
           }
         },
+        borderRadius: BorderRadius.circular(12),
         child: Container(
           padding: const EdgeInsets.symmetric(vertical: 10),
           decoration: BoxDecoration(
@@ -218,9 +225,7 @@ class GhostBottomSheet extends ConsumerWidget {
           ),
           child: Column(
             children: [
-              Text(display,
-                  style: TextStyle(
-                      fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)),
+              display,
               if (label != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 2),
@@ -230,6 +235,7 @@ class GhostBottomSheet extends ConsumerWidget {
             ],
           ),
         ),
+      ),
       ),
     );
   }
