@@ -72,7 +72,6 @@ class LocationState {
   final Map<String, PersonLocation> people;
   final Map<String, List<TrailPoint>> trails;
   final Position? myPosition;
-  final bool isSharing;
   final bool isGhostMode;
   final List<Map<String, dynamic>> places;
   final String? viewingUserId;
@@ -81,12 +80,17 @@ class LocationState {
   final List<String> activeGroupIds;
   final List<String> activeUserIds;
   final Set<String> zoneConsentedUsers;
+  final LocationActivity activity;
+
+  /// Derived: sharing is active when the activity state implies relay.
+  bool get isSharing =>
+      activity == LocationActivity.active ||
+      activity == LocationActivity.fast;
 
   const LocationState({
     this.people = const {},
     this.trails = const {},
     this.myPosition,
-    this.isSharing = false,
     this.isGhostMode = false,
     this.places = const [],
     this.viewingUserId,
@@ -95,13 +99,13 @@ class LocationState {
     this.activeGroupIds = const [],
     this.activeUserIds = const [],
     this.zoneConsentedUsers = const {},
+    this.activity = LocationActivity.sleeping,
   });
 
   LocationState copyWith({
     Map<String, PersonLocation>? people,
     Map<String, List<TrailPoint>>? trails,
     Position? myPosition,
-    bool? isSharing,
     bool? isGhostMode,
     List<Map<String, dynamic>>? places,
     String? viewingUserId,
@@ -110,6 +114,7 @@ class LocationState {
     List<String>? activeGroupIds,
     List<String>? activeUserIds,
     Set<String>? zoneConsentedUsers,
+    LocationActivity? activity,
     bool clearViewingUserId = false,
     bool clearMyPosition = false,
   }) {
@@ -117,15 +122,16 @@ class LocationState {
       people: people ?? this.people,
       trails: trails ?? this.trails,
       myPosition: clearMyPosition ? null : (myPosition ?? this.myPosition),
-      isSharing: isSharing ?? this.isSharing,
       isGhostMode: isGhostMode ?? this.isGhostMode,
       places: places ?? this.places,
-      viewingUserId: clearViewingUserId ? null : (viewingUserId ?? this.viewingUserId),
+      viewingUserId:
+          clearViewingUserId ? null : (viewingUserId ?? this.viewingUserId),
       lastLocationSent: lastLocationSent ?? this.lastLocationSent,
       myUserId: myUserId ?? this.myUserId,
       activeGroupIds: activeGroupIds ?? this.activeGroupIds,
       activeUserIds: activeUserIds ?? this.activeUserIds,
       zoneConsentedUsers: zoneConsentedUsers ?? this.zoneConsentedUsers,
+      activity: activity ?? this.activity,
     );
   }
 }
@@ -138,23 +144,52 @@ class LocationNotifier extends Notifier<LocationState> {
 
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
   StreamSubscription<Position>? _positionSubscription;
+  StreamSubscription<LocationActivity>? _activitySubscription;
   Timer? _nudgeTimer;
+  Timer? _relayTimer;
+
+  /// Last position captured from the GPS stream, used by the relay tick.
+  Position? _lastPosition;
+
+  /// Position that was last relayed to the server (for distance threshold).
+  Position? _lastRelayedPosition;
+
+  /// Minimum distance (meters) the device must move before relaying again.
+  static const double _relayDistanceThreshold = 5.0;
 
   final _geofenceEventsController =
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get geofenceEvents =>
       _geofenceEventsController.stream;
 
+  // ---------------------------------------------------------------------------
+  // Build / lifecycle
+  // ---------------------------------------------------------------------------
+
   @override
   LocationState build() {
     final wsService = ref.read(wsServiceProvider);
+    final locationService = ref.read(locationServiceProvider);
+
+    // Listen for WS messages (location broadcasts, presence, nudges).
     _wsSubscription = wsService.messages.listen(_handleWsMessage);
+
+    // Listen for GPS positions — every fix updates the map immediately.
+    _positionSubscription = locationService.positions.listen(_onPosition);
+
+    // Listen for activity state changes — controls relay cadence.
+    _activitySubscription =
+        locationService.activityChanges.listen(_onActivityChange);
+
+    // Grab initial cached position if available.
     _fetchInitialPosition();
 
     ref.onDispose(() {
       _wsSubscription?.cancel();
       _positionSubscription?.cancel();
+      _activitySubscription?.cancel();
       _nudgeTimer?.cancel();
+      _relayTimer?.cancel();
       _geofenceEventsController.close();
     });
 
@@ -168,39 +203,198 @@ class LocationNotifier extends Notifier<LocationState> {
       if (!granted) return;
       final pos = await locationService.getCurrentPosition();
       if (pos != null) {
+        _lastPosition = pos;
         state = state.copyWith(myPosition: pos);
       }
-      // Always track own position for map display (even without sharing)
-      _startOwnPositionTracking();
     } catch (_) {}
   }
 
-  /// Track own position for the map without starting "sharing".
-  /// This just updates myPosition — no data sent to anyone.
-  void _startOwnPositionTracking() {
-    if (_positionSubscription != null) return; // already tracking
-    final locationService = ref.read(locationServiceProvider);
-    locationService.startTracking();
-    _positionSubscription = locationService.positions.listen((position) {
+  // ---------------------------------------------------------------------------
+  // Position listener (every GPS fix — for smooth map rendering)
+  // ---------------------------------------------------------------------------
+
+  void _onPosition(Position position) {
+    _lastPosition = position;
+
+    final ghostState = ref.read(ghostProvider);
+    final globalGhost = state.isGhostMode || ghostState.isGhostActive;
+
+    // In ghost mode: update own position for local map rendering only.
+    if (globalGhost && !ghostState.isGhostedForGroup('__any__')) {
+      // Per-group ghost only — still update local state below.
+    } else if (state.isGhostMode ||
+        ghostState.isGlobalGhostOn ||
+        ghostState.hasActiveTimer) {
       state = state.copyWith(myPosition: position);
-      // If sharing is active, also send to recipients
-      if (state.isSharing) {
-        _onPosition(position);
-      } else {
-        // Just update own trail
-        if (state.myUserId != null && state.myUserId!.isNotEmpty) {
-          final trail = Map<String, List<TrailPoint>>.from(state.trails);
-          final myTrail = List<TrailPoint>.from(trail[state.myUserId!] ?? []);
-          final ts = position.timestamp.millisecondsSinceEpoch ~/ 1000;
-          myTrail.add(TrailPoint(position.latitude, position.longitude, ts));
-          final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
-          myTrail.removeWhere((p) => p.timestamp < cutoff);
-          trail[state.myUserId!] = myTrail;
-          state = state.copyWith(trails: trail);
-        }
+      return;
+    }
+
+    // Update own trail.
+    final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
+    if (state.myUserId != null && state.myUserId!.isNotEmpty) {
+      final trail = List<TrailPoint>.from(newTrails[state.myUserId!] ?? []);
+      final ts = position.timestamp.millisecondsSinceEpoch ~/ 1000;
+      trail.add(TrailPoint(position.latitude, position.longitude, ts));
+      final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
+      trail.removeWhere((p) => p.timestamp < cutoff);
+      newTrails[state.myUserId!] = trail;
+    }
+
+    state = state.copyWith(myPosition: position, trails: newTrails);
+
+    // In IDLE/SLEEPING: relay if position changed significantly (>10m)
+    // This ensures contacts see your initial position even when you're not "active"
+    if (state.activity == LocationActivity.idle || state.activity == LocationActivity.sleeping) {
+      if (_shouldRelayPositionChange(position)) {
+        _relayTick();
       }
-    });
+    }
+
+    // Evaluate geofences on every fix.
+    _checkGeofences(position.latitude, position.longitude);
   }
+
+  // ---------------------------------------------------------------------------
+  // Activity change listener (controls relay timer)
+  // ---------------------------------------------------------------------------
+
+  void _onActivityChange(LocationActivity activity) {
+    state = state.copyWith(activity: activity);
+    _configureRelayTimer(activity);
+  }
+
+  void _configureRelayTimer(LocationActivity activity) {
+    _relayTimer?.cancel();
+    _relayTimer = null;
+
+    switch (activity) {
+      case LocationActivity.sleeping:
+        // No relay — server keeps last known position.
+        break;
+      case LocationActivity.idle:
+        // Relay once on entering idle (so server has current pos),
+        // then relay on position changes only (no fixed timer)
+        _relayTick();
+        break;
+      case LocationActivity.active:
+        _relayTimer =
+            Timer.periodic(const Duration(seconds: 8), (_) => _relayTick());
+        break;
+      case LocationActivity.fast:
+        _relayTimer =
+            Timer.periodic(const Duration(seconds: 5), (_) => _relayTick());
+        break;
+      case LocationActivity.ghost:
+        // Relay blocked.
+        break;
+    }
+  }
+
+  bool _shouldRelayPositionChange(Position position) {
+    if (_lastRelayedPosition == null) return true;
+    // Relay if moved >10m since last relay
+    final dlat = position.latitude - _lastRelayedPosition!.latitude;
+    final dlon = position.longitude - _lastRelayedPosition!.longitude;
+    // ~10m in degrees at mid-latitudes
+    return (dlat * dlat + dlon * dlon) > 0.0001 * 0.0001;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Relay tick (sends encrypted position to server at activity-dependent rate)
+  // ---------------------------------------------------------------------------
+
+  Future<void> _relayTick() async {
+    final position = _lastPosition;
+    if (position == null) return;
+
+    // Ghost mode blocks all relay.
+    final ghostState = ref.read(ghostProvider);
+    if (state.isGhostMode ||
+        ghostState.isGlobalGhostOn ||
+        ghostState.hasActiveTimer) {
+      return;
+    }
+
+    // Don't relay if position hasn't moved beyond threshold since last relay.
+    if (_lastRelayedPosition != null) {
+      final dist = _haversineDistance(
+        position.latitude,
+        position.longitude,
+        _lastRelayedPosition!.latitude,
+        _lastRelayedPosition!.longitude,
+      );
+      if (dist < _relayDistanceThreshold) return;
+    }
+
+    _lastRelayedPosition = position;
+
+    // Read battery level for the payload.
+    int? batteryLevel;
+    try {
+      batteryLevel = await _battery.batteryLevel;
+    } catch (_) {}
+
+    if (batteryLevel != null) {
+      ref.read(ghostProvider.notifier).updateBattery(batteryLevel);
+    }
+
+    final locationData = LocationData(
+      lat: position.latitude,
+      lon: position.longitude,
+      accuracy: position.accuracy,
+      speed: position.speed,
+      heading: position.heading,
+      battery: batteryLevel,
+      timestamp: position.timestamp.millisecondsSinceEpoch,
+    );
+
+    final locationJson = locationData.toJson();
+    final cryptoService = ref.read(cryptoServiceProvider);
+    final wsService = ref.read(wsServiceProvider);
+
+    // Relay to active groups.
+    for (final groupId in state.activeGroupIds) {
+      if (ghostState.isGhostedForGroup(groupId)) continue;
+      try {
+        final blob = await cryptoService.encrypt(groupId, locationJson);
+        wsService.sendLocationUpdate(
+          recipientType: 'group',
+          recipientId: groupId,
+          encryptedBlob: blob,
+          sourceType: 'gps',
+          timestamp: locationData.timestamp,
+        );
+        state = state.copyWith(lastLocationSent: DateTime.now());
+      } catch (e) {
+        debugPrint('[Location] Encrypt failed for group $groupId: $e');
+      }
+    }
+
+    // Relay to active users (direct shares).
+    for (final userId in state.activeUserIds) {
+      if (ghostState.isGhostedForGroup(userId)) continue;
+      try {
+        final encryptId = state.myUserId != null
+            ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
+            : userId;
+        final blob = await cryptoService.encrypt(encryptId, locationJson);
+        if (blob == null) continue; // MLS not ready for this pair yet
+        wsService.sendLocationUpdate(
+          recipientType: 'user',
+          recipientId: userId,
+          encryptedBlob: blob,
+          sourceType: 'gps',
+          timestamp: locationData.timestamp,
+        );
+      } catch (e) {
+        debugPrint('[Location] Encrypt failed for user $userId: $e');
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Public API
+  // ---------------------------------------------------------------------------
 
   void setMyUserId(String id) {
     state = state.copyWith(myUserId: id);
@@ -208,21 +402,21 @@ class LocationNotifier extends Notifier<LocationState> {
 
   void setActiveGroups(List<String> groupIds) {
     state = state.copyWith(activeGroupIds: List.from(groupIds));
-    // Auto-start sharing when there are active groups or users
-    _autoStartSharing();
+    _autoWake();
   }
 
   void setActiveUserIds(List<String> userIds) {
     state = state.copyWith(activeUserIds: List.from(userIds));
-    _autoStartSharing();
+    _autoWake();
   }
 
-  /// Auto-start location sharing when the user has active shares or groups.
-  /// No manual toggle needed — sharing is on when you have people to share with.
-  void _autoStartSharing() {
-    if (state.isSharing) return;
+  /// When active groups/users are set, wake the location service so GPS starts
+  /// producing fixes (which flow through the position listener and get relayed
+  /// on the activity-dependent timer).
+  void _autoWake() {
     if (state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty) {
-      startSharing();
+      final locationService = ref.read(locationServiceProvider);
+      locationService.wake(WakeReason.movement);
     }
   }
 
@@ -259,7 +453,7 @@ class LocationNotifier extends Notifier<LocationState> {
     state = state.copyWith(places: List.from(allPlaces));
   }
 
-  /// Fetch location history for a user. Returns the raw list without storing in state.
+  /// Fetch location history for a user.
   Future<List<Map<String, dynamic>>> getHistory(
     String userId, {
     int? since,
@@ -315,7 +509,7 @@ class LocationNotifier extends Notifier<LocationState> {
     state = state.copyWith(zoneConsentedUsers: Set.from(userIds));
   }
 
-  /// Load granted zone consents from the server and set them in state.
+  /// Load granted zone consents from the server.
   Future<void> loadZoneConsents() async {
     final api = ref.read(apiServiceProvider);
     final grantedConsents = await api.listGrantedZoneConsents();
@@ -323,6 +517,28 @@ class LocationNotifier extends Notifier<LocationState> {
       grantedConsents.map((c) => c['consenter_id'] as String).toList(),
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Ghost mode
+  // ---------------------------------------------------------------------------
+
+  void toggleGhostMode() {
+    final newGhostMode = !state.isGhostMode;
+    state = state.copyWith(isGhostMode: newGhostMode);
+
+    if (newGhostMode) {
+      // Kill relay timer immediately — GHOST blocks all outbound.
+      _relayTimer?.cancel();
+      _relayTimer = null;
+    } else {
+      // Resuming from ghost — reconfigure relay based on current activity.
+      _configureRelayTimer(state.activity);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Viewing / nudge system
+  // ---------------------------------------------------------------------------
 
   /// Start actively viewing a person.
   void startViewing(String userId) {
@@ -341,7 +557,8 @@ class LocationNotifier extends Notifier<LocationState> {
   void _sendNudge(String userId) {
     final wsService = ref.read(wsServiceProvider);
     final lastTime = _lastNudge[userId];
-    if (lastTime != null && DateTime.now().difference(lastTime).inSeconds < 15) {
+    if (lastTime != null &&
+        DateTime.now().difference(lastTime).inSeconds < 15) {
       return;
     }
     wsService.requestFreshLocation(userId);
@@ -360,7 +577,9 @@ class LocationNotifier extends Notifier<LocationState> {
     } else {
       final speed = person.speed ?? 0;
       final secSinceUpdate = DateTime.now().millisecondsSinceEpoch ~/ 1000 -
-          (person.timestamp > 9999999999 ? person.timestamp ~/ 1000 : person.timestamp);
+          (person.timestamp > 9999999999
+              ? person.timestamp ~/ 1000
+              : person.timestamp);
 
       if (speed > 1.0) {
         interval = const Duration(seconds: 15);
@@ -379,134 +598,132 @@ class LocationNotifier extends Notifier<LocationState> {
     });
   }
 
-  TrackingMode get trackingMode {
-    final locationService = ref.read(locationServiceProvider);
-    return locationService.currentMode;
-  }
+  // ---------------------------------------------------------------------------
+  // WS message handling
+  // ---------------------------------------------------------------------------
 
-  Future<void> startSharing({TrackingMode mode = TrackingMode.adaptive}) async {
-    // Just flip the sharing flag — tracking is already running from _startOwnPositionTracking
-    state = state.copyWith(isSharing: true);
-    // If tracking isn't started yet, start it
-    if (_positionSubscription == null) {
-      _startOwnPositionTracking();
+  void _handleWsMessage(Map<String, dynamic> message) {
+    final type = message['type'] as String?;
+
+    if (type == 'location.broadcast' || type == 'location.update') {
+      _handleLocationBroadcast(message);
+    } else if (type == 'presence.broadcast' || type == 'presence.update') {
+      _handlePresenceBroadcast(message);
+    } else if (type == 'location.nudge') {
+      _handleNudge();
     }
   }
 
-  void setTrackingMode(TrackingMode mode) {
+  void _handleNudge() {
+    if (state.isGhostMode) return;
+
     final locationService = ref.read(locationServiceProvider);
-    locationService.setMode(mode);
+    locationService.wake(WakeReason.nudge);
+    debugPrint('[Location] Received nudge -- waking for fresh fix');
   }
 
-  void stopSharing() {
-    final locationService = ref.read(locationServiceProvider);
-    locationService.stopTracking();
-    _positionSubscription?.cancel();
-    _positionSubscription = null;
-    state = state.copyWith(isSharing: false, isGhostMode: false);
-  }
+  void _handleLocationBroadcast(Map<String, dynamic> message) {
+    final senderId = message['sender_id'] as String?;
+    final blob = message['encrypted_blob'] as String?;
+    final sourceType = message['source_type'] as String? ?? 'gps';
+    final recipientType = message['recipient_type'] as String? ?? 'user';
+    final recipientId = message['recipient_id'] as String? ?? senderId;
 
-  void toggleGhostMode() {
-    final locationService = ref.read(locationServiceProvider);
-    final newGhostMode = !state.isGhostMode;
-    if (newGhostMode) {
-      locationService.stopTracking();
-      _positionSubscription?.cancel();
-      _positionSubscription = null;
-    } else if (state.isSharing) {
-      locationService.startTracking(mode: locationService.currentMode);
-      _positionSubscription = locationService.positions.listen(_onPosition);
-    }
-    state = state.copyWith(isGhostMode: newGhostMode);
-  }
+    if (senderId == null || blob == null) return;
 
-  void _onPosition(Position position) async {
-    final ghostState = ref.read(ghostProvider);
-    final globalGhost = state.isGhostMode || ghostState.isGhostActive;
-
-    if (globalGhost && !ghostState.isGhostedForGroup('__any__')) {
-      // Per-group ghost only
-    } else if (state.isGhostMode || ghostState.isGlobalGhostOn || ghostState.hasActiveTimer) {
-      state = state.copyWith(myPosition: position);
-      return;
+    final cryptoService = ref.read(cryptoServiceProvider);
+    String decryptId;
+    if (recipientType == 'user' && state.myUserId != null) {
+      decryptId = cryptoService.pairwiseGroupId(state.myUserId!, senderId);
+    } else {
+      decryptId = recipientId!;
     }
 
-    // Update position + trail
-    final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
+    _decryptAndProcessLocation(senderId, blob, sourceType, decryptId, message);
+  }
 
-    if (state.myUserId != null && state.myUserId!.isNotEmpty) {
-      final trail = List<TrailPoint>.from(newTrails[state.myUserId!] ?? []);
-      final ts = position.timestamp.millisecondsSinceEpoch ~/ 1000;
-      trail.add(TrailPoint(position.latitude, position.longitude, ts));
+  Future<void> _decryptAndProcessLocation(
+    String senderId,
+    String blob,
+    String sourceType,
+    String recipientId,
+    Map<String, dynamic> message,
+  ) async {
+    final cryptoService = ref.read(cryptoServiceProvider);
+    try {
+      final json = await cryptoService.decrypt(recipientId, blob);
+      final data = LocationData.fromJson(json);
+
+      final newPeople = Map<String, PersonLocation>.from(state.people);
+      final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
+
+      final existing = newPeople[senderId];
+      final precision =
+          (message['precision'] as String?) ?? existing?.precision ?? 'exact';
+      newPeople[senderId] = PersonLocation(
+        userId: senderId,
+        lat: data.lat,
+        lon: data.lon,
+        sourceType: sourceType,
+        timestamp: data.timestamp,
+        battery: data.battery ?? existing?.battery,
+        activity: data.activity ?? existing?.activity,
+        speed: data.speed,
+        online: true,
+        precision: precision,
+      );
+
+      final trail = List<TrailPoint>.from(newTrails[senderId] ?? []);
+      final tsSec = data.timestamp > 9999999999
+          ? data.timestamp ~/ 1000
+          : data.timestamp;
+      trail.add(TrailPoint(data.lat, data.lon, tsSec));
       final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
       trail.removeWhere((p) => p.timestamp < cutoff);
-      newTrails[state.myUserId!] = trail;
+      newTrails[senderId] = trail;
+
+      state = state.copyWith(people: newPeople, trails: newTrails);
+
+      _checkPersonAgainstPersonalZones(senderId, data.lat, data.lon);
+    } catch (_) {
+      // Ignore malformed location data
     }
-
-    state = state.copyWith(myPosition: position, trails: newTrails);
-
-    int? batteryLevel;
-    try {
-      batteryLevel = await _battery.batteryLevel;
-    } catch (_) {}
-
-    if (batteryLevel != null) {
-      ref.read(ghostProvider.notifier).updateBattery(batteryLevel);
-    }
-
-    final locationData = LocationData(
-      lat: position.latitude,
-      lon: position.longitude,
-      accuracy: position.accuracy,
-      speed: position.speed,
-      heading: position.heading,
-      battery: batteryLevel,
-      timestamp: position.timestamp.millisecondsSinceEpoch,
-    );
-
-    final locationJson = locationData.toJson();
-    final cryptoService = ref.read(cryptoServiceProvider);
-    final wsService = ref.read(wsServiceProvider);
-
-    for (final groupId in state.activeGroupIds) {
-      if (ghostState.isGhostedForGroup(groupId)) continue;
-      try {
-        final blob = await cryptoService.encrypt(groupId, locationJson);
-        wsService.sendLocationUpdate(
-          recipientType: 'group',
-          recipientId: groupId,
-          encryptedBlob: blob,
-          sourceType: 'gps',
-          timestamp: locationData.timestamp,
-        );
-        state = state.copyWith(lastLocationSent: DateTime.now());
-      } catch (e) {
-        debugPrint('[Location] Encrypt failed for group $groupId: $e');
-      }
-    }
-
-    for (final userId in state.activeUserIds) {
-      if (ghostState.isGhostedForGroup(userId)) continue;
-      try {
-        final encryptId = state.myUserId != null
-            ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
-            : userId;
-        final blob = await cryptoService.encrypt(encryptId, locationJson);
-        if (blob == null) continue; // MLS not ready for this pair yet
-        wsService.sendLocationUpdate(
-          recipientType: 'user',
-          recipientId: userId,
-          encryptedBlob: blob,
-          sourceType: 'gps',
-          timestamp: locationData.timestamp,
-        );
-      } catch (e) {
-        debugPrint('[Location] Encrypt failed for user $userId: $e');
-      }
-    }
-
-    _checkGeofences(position.latitude, position.longitude);
   }
+
+  void _handlePresenceBroadcast(Map<String, dynamic> message) {
+    final senderId = (message['sender_id'] ?? message['user_id']) as String?;
+    if (senderId == null) return;
+
+    final battery = message['battery'] as int?;
+    final activity = message['activity'] as String?;
+    final online = message['online'] as bool? ?? true;
+
+    final newPeople = Map<String, PersonLocation>.from(state.people);
+    final existing = newPeople[senderId];
+    if (existing != null) {
+      newPeople[senderId] = existing.copyWith(
+        battery: battery,
+        activity: activity,
+        online: online,
+      );
+    } else {
+      newPeople[senderId] = PersonLocation(
+        userId: senderId,
+        lat: 0,
+        lon: 0,
+        sourceType: 'unknown',
+        timestamp: DateTime.now().millisecondsSinceEpoch,
+        battery: battery,
+        activity: activity,
+        online: online,
+      );
+    }
+    state = state.copyWith(people: newPeople);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Geofence evaluation
+  // ---------------------------------------------------------------------------
 
   void _checkGeofences(double lat, double lon) {
     final wsService = ref.read(wsServiceProvider);
@@ -620,6 +837,10 @@ class LocationNotifier extends Notifier<LocationState> {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Geo math helpers
+  // ---------------------------------------------------------------------------
+
   static bool _isInsidePolygon(double lat, double lon, List<dynamic> points) {
     int crossings = 0;
     for (int i = 0; i < points.length; i++) {
@@ -641,13 +862,15 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   static double _haversineDistance(
-    double lat1, double lon1, double lat2, double lon2,
+    double lat1,
+    double lon1,
+    double lat2,
+    double lon2,
   ) {
     const earthRadius = 6371000.0;
     final dLat = _toRadians(lat2 - lat1);
     final dLon = _toRadians(lon2 - lon1);
-    final a =
-        math.sin(dLat / 2) * math.sin(dLat / 2) +
+    final a = math.sin(dLat / 2) * math.sin(dLat / 2) +
         math.cos(_toRadians(lat1)) *
             math.cos(_toRadians(lat2)) *
             math.sin(dLon / 2) *
@@ -657,122 +880,4 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   static double _toRadians(double degrees) => degrees * math.pi / 180;
-
-  void _handleWsMessage(Map<String, dynamic> message) {
-    final type = message['type'] as String?;
-
-    if (type == 'location.broadcast' || type == 'location.update') {
-      _handleLocationBroadcast(message);
-    } else if (type == 'presence.broadcast' || type == 'presence.update') {
-      _handlePresenceBroadcast(message);
-    } else if (type == 'location.nudge') {
-      _handleNudge();
-    }
-  }
-
-  void _handleNudge() {
-    if (state.myPosition != null && state.isSharing && !state.isGhostMode) {
-      debugPrint('[Location] Received nudge -- sending fresh position');
-      _onPosition(state.myPosition!);
-    }
-  }
-
-  void _handleLocationBroadcast(Map<String, dynamic> message) {
-    final senderId = message['sender_id'] as String?;
-    final blob = message['encrypted_blob'] as String?;
-    final sourceType = message['source_type'] as String? ?? 'gps';
-    final recipientType = message['recipient_type'] as String? ?? 'user';
-    final recipientId = message['recipient_id'] as String? ?? senderId;
-
-    if (senderId == null || blob == null) return;
-
-    final cryptoService = ref.read(cryptoServiceProvider);
-    String decryptId;
-    if (recipientType == 'user' && state.myUserId != null) {
-      decryptId = cryptoService.pairwiseGroupId(state.myUserId!, senderId);
-    } else {
-      decryptId = recipientId!;
-    }
-
-    _decryptAndProcessLocation(senderId, blob, sourceType, decryptId, message);
-  }
-
-  Future<void> _decryptAndProcessLocation(
-    String senderId,
-    String blob,
-    String sourceType,
-    String recipientId,
-    Map<String, dynamic> message,
-  ) async {
-    final cryptoService = ref.read(cryptoServiceProvider);
-    try {
-      final json = await cryptoService.decrypt(recipientId, blob);
-      final data = LocationData.fromJson(json);
-
-      final newPeople = Map<String, PersonLocation>.from(state.people);
-      final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
-
-      final existing = newPeople[senderId];
-      final precision =
-          (message['precision'] as String?) ?? existing?.precision ?? 'exact';
-      newPeople[senderId] = PersonLocation(
-        userId: senderId,
-        lat: data.lat,
-        lon: data.lon,
-        sourceType: sourceType,
-        timestamp: data.timestamp,
-        battery: data.battery ?? existing?.battery,
-        activity: data.activity ?? existing?.activity,
-        speed: data.speed,
-        online: true,
-        precision: precision,
-      );
-
-      final trail = List<TrailPoint>.from(newTrails[senderId] ?? []);
-      final tsSec = data.timestamp > 9999999999
-          ? data.timestamp ~/ 1000
-          : data.timestamp;
-      trail.add(TrailPoint(data.lat, data.lon, tsSec));
-      final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
-      trail.removeWhere((p) => p.timestamp < cutoff);
-      newTrails[senderId] = trail;
-
-      state = state.copyWith(people: newPeople, trails: newTrails);
-
-      _checkPersonAgainstPersonalZones(senderId, data.lat, data.lon);
-    } catch (_) {
-      // Ignore malformed location data
-    }
-  }
-
-  void _handlePresenceBroadcast(Map<String, dynamic> message) {
-    final senderId = (message['sender_id'] ?? message['user_id']) as String?;
-    if (senderId == null) return;
-
-    final battery = message['battery'] as int?;
-    final activity = message['activity'] as String?;
-    final online = message['online'] as bool? ?? true;
-
-    final newPeople = Map<String, PersonLocation>.from(state.people);
-    final existing = newPeople[senderId];
-    if (existing != null) {
-      newPeople[senderId] = existing.copyWith(
-        battery: battery,
-        activity: activity,
-        online: online,
-      );
-    } else {
-      newPeople[senderId] = PersonLocation(
-        userId: senderId,
-        lat: 0,
-        lon: 0,
-        sourceType: 'unknown',
-        timestamp: DateTime.now().millisecondsSinceEpoch,
-        battery: battery,
-        activity: activity,
-        online: online,
-      );
-    }
-    state = state.copyWith(people: newPeople);
-  }
 }

@@ -11,7 +11,6 @@ import 'package:latlong2/latlong.dart' as ll;
 import '../config.dart';
 import '../models/map_provider.dart';
 import '../providers.dart';
-import '../services/location_service.dart';
 import '../theme.dart';
 
 class MapView extends ConsumerStatefulWidget {
@@ -47,14 +46,12 @@ class MapViewState extends ConsumerState<MapView> {
     }
     setState(() => _followingUserId = userId);
     if (userId != null) {
-      locationNotifier.setTrackingMode(TrackingMode.realtime);
       locationNotifier.startViewing(userId); // nudge for fresh location
       final target = _targetPositions[userId];
       if (target != null) {
         _animateCameraTo(target, zoom: 15);
       }
     } else {
-      locationNotifier.setTrackingMode(TrackingMode.adaptive);
       locationNotifier.stopViewing();
     }
   }

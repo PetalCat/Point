@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Point — Location Strategy v2</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0a0f; color: #e0e0e8; font-family: 'Inter', system-ui, sans-serif; padding: 2rem; max-width: 1400px; margin: 0 auto; }
+  h1 { font-size: 2rem; font-weight: 900; color: #fff; margin-bottom: 0.3rem; }
+  .subtitle { color: #888; font-size: 0.85rem; margin-bottom: 2rem; }
+  h2 { font-size: 1.2rem; font-weight: 800; color: #3F51FF; margin: 2.5rem 0 0.8rem; display: flex; align-items: center; gap: 0.5rem; }
+  h2 .icon { font-size: 1rem; }
+  h3 { font-size: 0.85rem; font-weight: 700; color: #666; margin: 1.5rem 0 0.5rem; text-transform: uppercase; letter-spacing: 0.1em; }
+
+  .philosophy { background: linear-gradient(135deg, #12121a, #0f0f1a); border: 1px solid #3F51FF30; border-radius: 16px; padding: 1.5rem; margin-bottom: 1.5rem; }
+  .philosophy h3 { color: #3F51FF; margin: 0 0 0.8rem; font-size: 1rem; text-transform: none; letter-spacing: 0; }
+  .philosophy p { color: #aaa; font-size: 0.82rem; line-height: 1.6; margin-bottom: 0.5rem; }
+  .philosophy strong { color: #fff; }
+
+  .rule { display: flex; gap: 0.8rem; align-items: flex-start; padding: 0.7rem 0; border-bottom: 1px solid #1a1a28; }
+  .rule:last-child { border-bottom: none; }
+  .rule-num { font-weight: 900; color: #3F51FF; font-size: 0.75rem; flex-shrink: 0; width: 20px; }
+  .rule-text { font-size: 0.8rem; color: #bbb; line-height: 1.5; }
+  .rule-text strong { color: #fff; }
+  .rule-text em { color: #00FF88; font-style: normal; font-weight: 700; font-size: 0.7rem; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 0.73rem; margin-bottom: 1.5rem; }
+  th, td { padding: 0.55rem 0.7rem; text-align: left; border-bottom: 1px solid #1a1a28; }
+  th { background: #12121a; color: #666; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; font-size: 0.6rem; position: sticky; top: 0; }
+  td { color: #ccc; }
+  tr:hover td { background: #13131d; }
+
+  .off { color: #444; font-weight: 700; }
+  .sleep { color: #666; font-weight: 600; }
+  .lazy { color: #FFB700; font-weight: 600; }
+  .active { color: #00D4FF; font-weight: 600; }
+  .live { color: #00FF88; font-weight: 700; }
+  .zero { color: #333; font-weight: 700; }
+
+  .wake { display: inline-block; font-size: 0.55rem; font-weight: 800; text-transform: uppercase; letter-spacing: 0.05em; padding: 0.12rem 0.4rem; border-radius: 4px; vertical-align: middle; }
+  .wake-accel { background: #FFB70015; color: #FFB700; }
+  .wake-nudge { background: #3F51FF15; color: #7B8BFF; }
+  .wake-app { background: #00FF8815; color: #00FF88; }
+  .wake-timer { background: #FF6B3515; color: #FF6B35; }
+  .wake-none { background: #33333315; color: #555; }
+
+  .state-machine { background: #12121a; border: 1px solid #1e1e2e; border-radius: 16px; padding: 1.5rem; margin: 1rem 0; }
+  .state { display: flex; align-items: flex-start; gap: 1rem; margin-bottom: 1rem; padding-bottom: 1rem; border-bottom: 1px solid #1a1a28; }
+  .state:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
+  .state-name { font-weight: 900; font-size: 0.85rem; flex-shrink: 0; width: 100px; }
+  .state-name.sleeping { color: #666; }
+  .state-name.idle { color: #FFB700; }
+  .state-name.walking { color: #00D4FF; }
+  .state-name.driving { color: #00FF88; }
+  .state-name.ghost { color: #7B8BFF; }
+  .state-desc { font-size: 0.75rem; color: #999; line-height: 1.5; }
+  .state-desc strong { color: #ddd; }
+  .state-vals { font-size: 0.65rem; color: #666; margin-top: 0.3rem; }
+  .state-vals span { margin-right: 1rem; }
+
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; margin: 1rem 0; }
+  .vs-card { background: #12121a; border: 1px solid #1e1e2e; border-radius: 14px; padding: 1rem 1.2rem; }
+  .vs-card h4 { font-size: 0.85rem; font-weight: 800; margin-bottom: 0.6rem; }
+  .vs-card.point { border-color: #3F51FF30; }
+  .vs-card.point h4 { color: #3F51FF; }
+  .vs-card.l360 h4 { color: #7C3AED; }
+  .vs-row { display: flex; justify-content: space-between; padding: 0.3rem 0; font-size: 0.72rem; border-bottom: 1px solid #1a1a28; }
+  .vs-row:last-child { border-bottom: none; }
+  .vs-label { color: #888; }
+  .vs-val { font-weight: 700; }
+
+  .note { font-size: 0.65rem; color: #555; line-height: 1.4; }
+  .callout { background: #00FF8808; border: 1px solid #00FF8820; border-radius: 10px; padding: 0.8rem 1rem; margin: 0.8rem 0; font-size: 0.75rem; color: #00FF88; }
+  .callout strong { color: #fff; }
+  .callout-warn { background: #FFB70008; border-color: #FFB70020; color: #FFB700; }
+
+  .footer { color: #333; font-size: 0.65rem; text-align: center; margin-top: 3rem; padding-top: 1rem; border-top: 1px solid #1a1a28; }
+</style>
+</head>
+<body>
+
+<h1>📍 Point Location Strategy v2</h1>
+<p class="subtitle">Passified by default. Aggressive only when needed. Zero waste.</p>
+
+<!-- ============ PHILOSOPHY ============ -->
+<div class="philosophy">
+  <h3>The Golden Rule</h3>
+  <p><strong>Don't poll unless something wants the data.</strong></p>
+  <p>Life360 runs a timer that fires every 15 seconds regardless of whether anyone is looking, whether you've moved, or whether the app is even visible. Point does the opposite — <strong>everything is event-driven</strong>. The GPS hardware stays off until a specific trigger demands a fix.</p>
+  <p>There are only 5 triggers that turn on GPS:</p>
+  <div style="margin-top: 0.6rem;">
+    <div class="rule"><div class="rule-num">1</div><div class="rule-text"><strong>You open the map.</strong> You want to see yourself → poll for smooth rendering.</div></div>
+    <div class="rule"><div class="rule-num">2</div><div class="rule-text"><strong>Accelerometer detects movement.</strong> You started walking/driving → poll for relay.</div></div>
+    <div class="rule"><div class="rule-num">3</div><div class="rule-text"><strong>Someone views you.</strong> Nudge arrives → one-shot fix → respond → sleep.</div></div>
+    <div class="rule"><div class="rule-num">4</div><div class="rule-text"><strong>30-minute heartbeat.</strong> Confirm you're still where we think you are.</div></div>
+    <div class="rule"><div class="rule-num">5</div><div class="rule-text"><strong>Geofence boundary.</strong> OS wakes us — you entered or left a place.</div></div>
+  </div>
+  <p style="margin-top: 0.8rem; color: #666;"><strong>Everything else is zero.</strong> No polling. No battery. No wake locks. The phone sleeps.</p>
+</div>
+
+<!-- ============ STATE MACHINE ============ -->
+<h2><span class="icon">⚡</span> Activity States</h2>
+
+<div class="state-machine">
+  <div class="state">
+    <div class="state-name sleeping">SLEEPING</div>
+    <div>
+      <div class="state-desc">
+        <strong>Haven't moved. Nobody looking. App may be backgrounded or killed.</strong><br>
+        GPS hardware is OFF. Zero polling. Zero relay. Phone is fully idle.<br>
+        Only wakes on: nudge (someone views you), accelerometer (you move), 30-min heartbeat, or geofence trigger.
+      </div>
+      <div class="state-vals">
+        <span>GPS: <strong class="off">OFF</strong></span>
+        <span>Relay: <strong class="off">OFF</strong></span>
+        <span>Battery: <strong class="live">~0%/hr</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="state">
+    <div class="state-name idle">IDLE</div>
+    <div>
+      <div class="state-desc">
+        <strong>App is open and map is visible, but you haven't moved.</strong><br>
+        Show cached position on map. No GPS polling needed — you're where you were.<br>
+        Transitions to WALKING/DRIVING on accelerometer trigger. Falls back to SLEEPING after 2 min if app backgrounds.
+      </div>
+      <div class="state-vals">
+        <span>GPS: <strong class="off">OFF</strong> (cached pos displayed)</span>
+        <span>Relay: <strong class="off">OFF</strong></span>
+        <span>Render: <strong class="live">60fps</strong> (static marker)</span>
+        <span>Battery: <strong class="live">~0%/hr</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="state">
+    <div class="state-name walking">ACTIVE</div>
+    <div>
+      <div class="state-desc">
+        <strong>Moving (walking, cycling, or slow driving). App may or may not be open.</strong><br>
+        GPS polling at 3s. Server relay at 8s (batched). If map is visible, interpolate at 60fps.<br>
+        Speed determines sub-state: walking (&lt;2 m/s) polls 5s, driving (&gt;5 m/s) polls 2s.
+      </div>
+      <div class="state-vals">
+        <span>GPS: <strong class="active">2-5s</strong> (speed-adaptive)</span>
+        <span>Relay: <strong class="lazy">5-10s</strong> (batched)</span>
+        <span>Render: <strong class="live">60fps interpolated</strong></span>
+        <span>Battery: <strong class="lazy">~2-4%/hr active</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="state">
+    <div class="state-name driving">FAST</div>
+    <div>
+      <div class="state-desc">
+        <strong>Driving or high-speed movement (&gt;5 m/s sustained).</strong><br>
+        Fastest polling for accurate trails. Relay at 5s because you're covering ground quickly and viewers need timely updates.<br>
+        Large distance filter (10m) is fine because at 60mph you cover 27m/s.
+      </div>
+      <div class="state-vals">
+        <span>GPS: <strong class="live">2s</strong></span>
+        <span>Relay: <strong class="active">5s</strong></span>
+        <span>Render: <strong class="live">60fps interpolated</strong></span>
+        <span>Dist filter: <strong>10m</strong></span>
+        <span>Battery: <strong class="lazy">~3-5%/hr</strong></span>
+      </div>
+    </div>
+  </div>
+
+  <div class="state">
+    <div class="state-name ghost">GHOST</div>
+    <div>
+      <div class="state-desc">
+        <strong>Ghost mode active. Total silence.</strong><br>
+        GPS OFF. Relay OFF. Server drops anything if it somehow leaks. Own cached position still renders on your own map only.<br>
+        Nobody knows you went dark. No "last seen" update. You vanish.
+      </div>
+      <div class="state-vals">
+        <span>GPS: <strong class="off">OFF</strong></span>
+        <span>Relay: <strong class="off">BLOCKED</strong></span>
+        <span>Render: <strong class="sleep">own cached only</strong></span>
+        <span>Battery: <strong class="live">0%</strong></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ============ TRANSITIONS ============ -->
+<h2><span class="icon">🔄</span> State Transitions</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>From</th>
+      <th>To</th>
+      <th>Trigger</th>
+      <th>Ramp</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td class="sleep">SLEEPING</td>
+      <td class="idle">IDLE</td>
+      <td>App opened / map visible</td>
+      <td>Instant — show cached position</td>
+    </tr>
+    <tr>
+      <td class="sleep">SLEEPING</td>
+      <td class="active">ACTIVE</td>
+      <td><span class="wake wake-accel">accelerometer</span> detects movement</td>
+      <td>Ramp: first fix → 10s → 3s over 3 fixes</td>
+    </tr>
+    <tr>
+      <td class="sleep">SLEEPING</td>
+      <td class="sleep">SLEEPING</td>
+      <td><span class="wake wake-nudge">nudge</span> from viewer</td>
+      <td>One-shot fix → respond → back to sleep</td>
+    </tr>
+    <tr>
+      <td class="sleep">SLEEPING</td>
+      <td class="sleep">SLEEPING</td>
+      <td><span class="wake wake-timer">30-min heartbeat</span></td>
+      <td>One-shot fix → relay → back to sleep</td>
+    </tr>
+    <tr>
+      <td class="idle">IDLE</td>
+      <td class="active">ACTIVE</td>
+      <td><span class="wake wake-accel">accelerometer</span> or GPS drift &gt;5m</td>
+      <td>Ramp up over 3 fixes</td>
+    </tr>
+    <tr>
+      <td class="idle">IDLE</td>
+      <td class="sleep">SLEEPING</td>
+      <td>App backgrounded for 2 min</td>
+      <td>Stop GPS, cache position</td>
+    </tr>
+    <tr>
+      <td class="active">ACTIVE</td>
+      <td class="idle">IDLE</td>
+      <td>No movement for 2 min (app open)</td>
+      <td>Ramp down: 3s → 10s → 30s → off</td>
+    </tr>
+    <tr>
+      <td class="active">ACTIVE</td>
+      <td class="sleep">SLEEPING</td>
+      <td>No movement for 2 min (app backgrounded)</td>
+      <td>Stop GPS, significant-change only</td>
+    </tr>
+    <tr>
+      <td class="active">ACTIVE</td>
+      <td class="driving">FAST</td>
+      <td>Speed &gt;5 m/s for 3+ consecutive fixes</td>
+      <td>Instant — already polling</td>
+    </tr>
+    <tr>
+      <td class="driving">FAST</td>
+      <td class="active">ACTIVE</td>
+      <td>Speed drops &lt;2 m/s for 5+ fixes</td>
+      <td>Gradual — don't flicker on red lights</td>
+    </tr>
+    <tr>
+      <td>Any</td>
+      <td class="ghost">GHOST</td>
+      <td>Ghost mode activated</td>
+      <td>Instant kill — GPS off, relay blocked</td>
+    </tr>
+    <tr>
+      <td class="ghost">GHOST</td>
+      <td class="sleep">SLEEPING</td>
+      <td>Ghost mode deactivated</td>
+      <td>Resume from sleeping, detect activity</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ WAKE TRIGGERS ============ -->
+<h2><span class="icon">🔔</span> Wake Triggers (What Turns GPS On)</h2>
+
+<table>
+  <thead>
+    <tr>
+      <th>Trigger</th>
+      <th>Source</th>
+      <th>Action</th>
+      <th>GPS Duration</th>
+      <th>Battery Cost</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><span class="wake wake-app">app opened</span></td>
+      <td>User</td>
+      <td>One-shot fix → display on map → enter IDLE</td>
+      <td>Single fix (~3s)</td>
+      <td class="live">Negligible</td>
+    </tr>
+    <tr>
+      <td><span class="wake wake-accel">movement</span></td>
+      <td>Accelerometer / significant-change</td>
+      <td>Ramp up GPS → enter ACTIVE → start relay</td>
+      <td>Continuous while moving</td>
+      <td class="lazy">Normal tracking</td>
+    </tr>
+    <tr>
+      <td><span class="wake wake-nudge">viewer nudge</span></td>
+      <td>FCM / UnifiedPush / WebSocket</td>
+      <td>One-shot fix → relay to server → back to sleep</td>
+      <td>Single fix (~3s)</td>
+      <td class="live">Negligible</td>
+    </tr>
+    <tr>
+      <td><span class="wake wake-timer">heartbeat</span></td>
+      <td>WorkManager (30 min)</td>
+      <td>One-shot fix → relay if moved &gt;50m → sleep</td>
+      <td>Single fix (~3s)</td>
+      <td class="live">Negligible</td>
+    </tr>
+    <tr>
+      <td><span class="wake wake-accel">geofence</span></td>
+      <td>OS geofence engine</td>
+      <td>Enter/exit event → relay → notification → sleep</td>
+      <td>None (OS provides fix)</td>
+      <td class="live">Zero (OS handled)</td>
+    </tr>
+    <tr>
+      <td><span class="wake wake-none">nothing</span></td>
+      <td>—</td>
+      <td>Phone sleeps. GPS hardware powered down.</td>
+      <td>0</td>
+      <td class="live">0%</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="callout">
+  <strong>Key insight:</strong> The phone spends 90%+ of the day in SLEEPING or IDLE state. GPS hardware is only powered when you're actually moving or someone specifically asks where you are. This is fundamentally different from Life360's always-on polling.
+</div>
+
+<!-- ============ FULL SCENARIO MATRIX ============ -->
+<h2><span class="icon">📊</span> Complete Scenario Matrix</h2>
+
+<h3>Your Device</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>GPS</th>
+      <th>Render</th>
+      <th>Relay</th>
+      <th>Wake Source</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Map open, haven't moved</td>
+      <td class="off">OFF (cached)</td>
+      <td class="live">60fps static</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-none">none needed</span></td>
+    </tr>
+    <tr>
+      <td>Map open, walking</td>
+      <td class="active">3-5s</td>
+      <td class="live">60fps lerp</td>
+      <td class="lazy">8s</td>
+      <td><span class="wake wake-accel">movement</span></td>
+    </tr>
+    <tr>
+      <td>Map open, driving</td>
+      <td class="live">2s</td>
+      <td class="live">60fps lerp</td>
+      <td class="active">5s</td>
+      <td><span class="wake wake-accel">movement</span></td>
+    </tr>
+    <tr>
+      <td>Map open, following someone</td>
+      <td class="active">5s (own)</td>
+      <td class="live">60fps lerp (both)</td>
+      <td class="lazy">8s</td>
+      <td><span class="wake wake-nudge">nudge them</span></td>
+    </tr>
+    <tr>
+      <td>App open, other tab, moving</td>
+      <td class="lazy">10s</td>
+      <td class="off">none</td>
+      <td class="lazy">10s</td>
+      <td><span class="wake wake-accel">movement</span></td>
+    </tr>
+    <tr>
+      <td>App open, other tab, still</td>
+      <td class="off">OFF</td>
+      <td class="off">none</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-none">none</span></td>
+    </tr>
+    <tr>
+      <td>Backgrounded, moving</td>
+      <td class="lazy">30s</td>
+      <td class="off">none</td>
+      <td class="lazy">30s</td>
+      <td><span class="wake wake-accel">foreground service</span></td>
+    </tr>
+    <tr>
+      <td>Backgrounded, still</td>
+      <td class="off">OFF</td>
+      <td class="off">none</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-none">sleeping</span></td>
+    </tr>
+    <tr>
+      <td>App killed</td>
+      <td class="off">OFF</td>
+      <td class="off">none</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-nudge">FCM/UP wake only</span></td>
+    </tr>
+    <tr>
+      <td>Ghost mode</td>
+      <td class="off">OFF</td>
+      <td class="sleep">cached own</td>
+      <td class="off">BLOCKED</td>
+      <td><span class="wake wake-none">none</span></td>
+    </tr>
+    <tr>
+      <td>Battery &lt;15%</td>
+      <td class="sleep">significant-change</td>
+      <td class="sleep">30fps if open</td>
+      <td class="sleep">on-change</td>
+      <td><span class="wake wake-accel">movement only</span></td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Receiving Others</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Receive</th>
+      <th>Render</th>
+      <th>Mechanism</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>Map open, they're moving</td>
+      <td class="live">real-time WS push</td>
+      <td class="live">60fps lerp</td>
+      <td>WS delivers their relay ticks. Lerp between them.</td>
+    </tr>
+    <tr>
+      <td>Map open, they're still</td>
+      <td class="off">cached last pos</td>
+      <td class="live">static marker</td>
+      <td>No updates needed. Show last known.</td>
+    </tr>
+    <tr>
+      <td>Tap on their marker / profile</td>
+      <td class="live">nudge → fresh fix</td>
+      <td class="live">60fps lerp</td>
+      <td>Nudge their device. They respond in &lt;5s.</td>
+    </tr>
+    <tr>
+      <td>Following them (sustained)</td>
+      <td class="active">nudge every 15-45s</td>
+      <td class="live">60fps lerp</td>
+      <td>Adaptive nudge rate. Fast if moving, slow if still.</td>
+    </tr>
+    <tr>
+      <td>They're offline / killed</td>
+      <td class="off">stale (dimmed)</td>
+      <td class="sleep">dim marker + "2h ago"</td>
+      <td>FCM wakes them on nudge. Respond when alive.</td>
+    </tr>
+    <tr>
+      <td>They're in ghost mode</td>
+      <td class="off">nothing</td>
+      <td class="off">vanished</td>
+      <td>Server drops all. No stale marker. No trace.</td>
+    </tr>
+    <tr>
+      <td>App backgrounded</td>
+      <td class="off">WS disconnects</td>
+      <td class="off">none</td>
+      <td>Geofence alerts via push. No live rendering.</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Someone Viewing You</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Scenario</th>
+      <th>Effect on You</th>
+      <th>Your Battery Cost</th>
+      <th>Latency</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>1 person taps your marker</td>
+      <td>Single nudge → one fix → relay</td>
+      <td class="live">Negligible</td>
+      <td>&lt;5s</td>
+    </tr>
+    <tr>
+      <td>1 person follows you (you're moving)</td>
+      <td>Nudges every 15s → one fix each</td>
+      <td class="active">Minimal (already polling)</td>
+      <td>&lt;5s</td>
+    </tr>
+    <tr>
+      <td>1 person follows you (you're still)</td>
+      <td>Nudge every 2 min → one fix each</td>
+      <td class="live">Near zero</td>
+      <td>&lt;5s</td>
+    </tr>
+    <tr>
+      <td>5 people viewing you simultaneously</td>
+      <td>Deduplicated: max 1 fix per 15s</td>
+      <td class="active">Same as 1 viewer</td>
+      <td>&lt;5s</td>
+    </tr>
+    <tr>
+      <td>Nobody viewing you, you're still</td>
+      <td>Nothing. Zero. Phone sleeps.</td>
+      <td class="live">0%</td>
+      <td>—</td>
+    </tr>
+    <tr>
+      <td>Nobody viewing you, you're moving</td>
+      <td>Normal background relay (for trail history)</td>
+      <td class="lazy">Normal tracking</td>
+      <td>Stored server-side</td>
+    </tr>
+    <tr>
+      <td>Your app is killed, someone views</td>
+      <td>FCM/UP wakes → one fix → relay → sleep</td>
+      <td class="live">Single wake (~1s)</td>
+      <td>5-15s (wake latency)</td>
+    </tr>
+  </tbody>
+</table>
+
+<h3>Stationary / Haven't Moved</h3>
+<table>
+  <thead>
+    <tr>
+      <th>Duration Still</th>
+      <th>GPS</th>
+      <th>Relay</th>
+      <th>What Wakes It</th>
+      <th>Battery</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>0-2 min (just stopped)</td>
+      <td class="lazy">ramp down: 3s→10s→30s</td>
+      <td class="lazy">last fix on stop</td>
+      <td>Automatic ramp</td>
+      <td class="active">Decreasing</td>
+    </tr>
+    <tr>
+      <td>2-5 min</td>
+      <td class="off">OFF</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-accel">movement</span> <span class="wake wake-nudge">nudge</span></td>
+      <td class="live">~0%</td>
+    </tr>
+    <tr>
+      <td>5-30 min</td>
+      <td class="off">OFF</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-accel">movement</span> <span class="wake wake-nudge">nudge</span></td>
+      <td class="live">0%</td>
+    </tr>
+    <tr>
+      <td>30 min (heartbeat)</td>
+      <td class="sleep">one-shot</td>
+      <td class="sleep">one-shot if moved &gt;50m</td>
+      <td><span class="wake wake-timer">heartbeat</span></td>
+      <td class="live">Negligible</td>
+    </tr>
+    <tr>
+      <td>1+ hour</td>
+      <td class="off">OFF</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-nudge">nudge</span> <span class="wake wake-timer">heartbeat</span></td>
+      <td class="live">0%</td>
+    </tr>
+    <tr>
+      <td>Overnight (8 hours)</td>
+      <td class="off">OFF</td>
+      <td class="off">OFF</td>
+      <td><span class="wake wake-timer">heartbeats only</span> (16 one-shots)</td>
+      <td class="live">&lt;0.5%</td>
+    </tr>
+    <tr>
+      <td>Start moving after hours still</td>
+      <td class="active">ramp: one-shot→10s→3s</td>
+      <td class="active">first fix immediate</td>
+      <td><span class="wake wake-accel">accelerometer</span></td>
+      <td class="active">Ramping up</td>
+    </tr>
+  </tbody>
+</table>
+
+<!-- ============ INTERPOLATION ============ -->
+<h2><span class="icon">✨</span> Rendering Pipeline</h2>
+
+<div class="state-machine">
+  <div class="rule"><div class="rule-num">1</div><div class="rule-text"><strong>GPS fix arrives</strong> → stored as <code>targetPosition</code>. Marker doesn't jump.</div></div>
+  <div class="rule"><div class="rule-num">2</div><div class="rule-text"><strong>Every 16ms</strong> (60fps) → lerp <code>currentPosition</code> toward <code>targetPosition</code> at 30% per tick. Marker glides.</div></div>
+  <div class="rule"><div class="rule-num">3</div><div class="rule-text"><strong>When converged</strong> (distance &lt;0.000001°) → snap to target. Wait for next fix.</div></div>
+  <div class="rule"><div class="rule-num">4</div><div class="rule-text"><strong>Other people</strong> → same pipeline. Their WS pushes become target positions. Same lerp. Same smoothness.</div></div>
+  <div class="rule"><div class="rule-num">5</div><div class="rule-text"><strong>Camera follows lerped position</strong> using <code>moveCamera</code> (instant, no animation fight). Never raw GPS.</div></div>
+  <div class="rule"><div class="rule-num">6</div><div class="rule-text"><strong>Trails</strong> → Catmull-Rom spline through last 30 min of fixes. Smooth curves, not jagged lines.</div></div>
+</div>
+
+<!-- ============ VS LIFE360 ============ -->
+<h2><span class="icon">⚔️</span> Point vs Life360</h2>
+
+<div class="vs">
+  <div class="vs-card point">
+    <h4>Point</h4>
+    <div class="vs-row"><span class="vs-label">Stationary (8hr at desk)</span><span class="vs-val live">&lt;0.5% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Mixed day (commute+office)</span><span class="vs-val active">3-5% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Active day (driving/errands)</span><span class="vs-val lazy">6-8% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Overnight (sleeping)</span><span class="vs-val live">&lt;0.5% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Map smoothness</span><span class="vs-val live">60fps interpolated</span></div>
+    <div class="vs-row"><span class="vs-label">Update latency (viewed)</span><span class="vs-val live">&lt;5s</span></div>
+    <div class="vs-row"><span class="vs-label">Still + nobody viewing</span><span class="vs-val live">Zero drain</span></div>
+  </div>
+  <div class="vs-card l360">
+    <h4>Life360</h4>
+    <div class="vs-row"><span class="vs-label">Stationary (8hr at desk)</span><span class="vs-val" style="color:#FF6B35">8-12% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Mixed day (commute+office)</span><span class="vs-val" style="color:#FF6B35">12-18% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Active day (driving/errands)</span><span class="vs-val" style="color:#FF6B35">15-25% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Overnight (sleeping)</span><span class="vs-val" style="color:#FF6B35">3-5% battery</span></div>
+    <div class="vs-row"><span class="vs-label">Map smoothness</span><span class="vs-val" style="color:#FFB700">Jumpy (raw fixes)</span></div>
+    <div class="vs-row"><span class="vs-label">Update latency (viewed)</span><span class="vs-val" style="color:#FFB700">15-60s</span></div>
+    <div class="vs-row"><span class="vs-label">Still + nobody viewing</span><span class="vs-val" style="color:#FF6B35">Still polling</span></div>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>Why Point wins on both battery AND smoothness:</strong> Life360 uses the same 15s poll for everything — too slow for smooth rendering, too fast for idle battery. Point decouples: 60fps rendering via interpolation (smooth), event-driven GPS (efficient). You can't beat both with a single fixed timer.
+</div>
+
+<div class="callout callout-warn">
+  <strong>Implementation note:</strong> The accelerometer-based wake trigger uses Android's <code>TYPE_SIGNIFICANT_MOTION</code> sensor, which is hardware-accelerated and costs essentially zero battery. It fires once when movement starts, then we take over with GPS. This is the same mechanism Google Maps uses for timeline detection.
+</div>
+
+<div class="footer">Point Location Strategy v2.0 — event-driven, passified, zero waste.</div>
+
+</body>
+</html>
