@@ -79,7 +79,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     try {
       final fcmToken = await FirebaseMessaging.instance.getToken();
       if (fcmToken != null && mounted) {
-        await ref.read(apiServiceProvider).registerFcmToken(fcmToken);
+        await ref.read(authProvider.notifier).registerFcmToken(fcmToken);
       }
     } catch (e) {
       debugPrint('FCM token registration: $e');
@@ -94,19 +94,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     // Load places (geofences)
     if (mounted) {
-      final api = ref.read(apiServiceProvider);
-      final allPlaces = <Map<String, dynamic>>[];
-      for (final g in groups.groups) {
-        try {
-          final places = await api.listPlaces(g.id);
-          allPlaces.addAll(places);
-        } catch (_) {}
-      }
-      try {
-        final personalPlaces = await api.listPersonalPlaces();
-        allPlaces.addAll(personalPlaces);
-      } catch (_) {}
-      locationNotifier.setPlaces(allPlaces);
+      await locationNotifier.loadPlaces(groups.groups.map((g) => g.id).toList());
     }
 
     // Listen for geofence enter/exit events
@@ -155,13 +143,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Load zone consents
     if (mounted) {
       try {
-        final api = ref.read(apiServiceProvider);
-        final grantedConsents = await api.listGrantedZoneConsents();
-        if (mounted) {
-          locationNotifier.setZoneConsentedUsers(
-            grantedConsents.map((c) => c['consenter_id'] as String).toList(),
-          );
-        }
+        await locationNotifier.loadZoneConsents();
       } catch (e) {
         debugPrint('Zone consents load: $e');
       }
@@ -510,21 +492,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 context, MaterialPageRoute(builder: (_) => PlaceCreationScreen(initialPosition: pos)),
               );
               if (result == true && mounted) {
-                final api = ref.read(apiServiceProvider);
                 final groups = ref.read(groupProvider);
-                final locationNotifier = ref.read(locationProvider.notifier);
-                final allPlaces = <Map<String, dynamic>>[];
-                for (final g in groups.groups) {
-                  try {
-                    final places = await api.listPlaces(g.id);
-                    allPlaces.addAll(places);
-                  } catch (_) {}
-                }
-                try {
-                  final personalPlaces = await api.listPersonalPlaces();
-                  allPlaces.addAll(personalPlaces);
-                } catch (_) {}
-                locationNotifier.setPlaces(allPlaces);
+                await ref.read(locationProvider.notifier).loadPlaces(
+                  groups.groups.map((g) => g.id).toList(),
+                );
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: const Text('Place saved'), behavior: SnackBarBehavior.floating,

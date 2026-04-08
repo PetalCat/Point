@@ -1013,7 +1013,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                     } else {
                       // Temp share
                       try {
-                        await ref.read(apiServiceProvider).createTempShare(
+                        await ref.read(sharingProvider.notifier).createTempShare(
                           userId,
                           selectedDuration,
                         );
@@ -1172,8 +1172,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
               if (code.isEmpty) return;
               Navigator.pop(ctx);
               try {
-                await ref.read(apiServiceProvider).joinGroupByCode(code);
-                await ref.read(groupProvider.notifier).loadGroups();
+                await ref.read(groupProvider.notifier).joinGroupByCode(code);
                 ref.read(locationProvider.notifier).setActiveGroups(
                   ref
                       .read(groupProvider)

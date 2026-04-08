@@ -157,4 +157,24 @@ class AuthNotifier extends Notifier<AuthState> {
       isLoading: false,
     );
   }
+
+  Future<void> changePassword(String currentPassword, String newPassword) async {
+    final apiService = ref.read(apiServiceProvider);
+    await apiService.changePassword(currentPassword, newPassword);
+  }
+
+  Future<void> deleteAccount(String password) async {
+    final apiService = ref.read(apiServiceProvider);
+    await apiService.deleteAccount(password);
+  }
+
+  Future<Map<String, dynamic>> createInvite({int? maxUses}) async {
+    final apiService = ref.read(apiServiceProvider);
+    return await apiService.createInvite(maxUses: maxUses);
+  }
+
+  Future<void> registerFcmToken(String token) async {
+    final apiService = ref.read(apiServiceProvider);
+    await apiService.registerFcmToken(token);
+  }
 }

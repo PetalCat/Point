@@ -75,9 +75,9 @@ class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
 
     setState(() => _saving = true);
     try {
-      final api = ref.read(apiServiceProvider);
+      final locationNotifier = ref.read(locationProvider.notifier);
       if (_isPersonal) {
-        await api.createPersonalPlace(
+        await locationNotifier.createPersonalPlace(
           name,
           geometryType: _mode,
           lat: _mode == 'circle' ? _center.latitude : null,
@@ -90,7 +90,7 @@ class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
               : null,
         );
       } else {
-        await api.createPlace(
+        await locationNotifier.createPlace(
           _selectedGroupId!,
           name,
           geometryType: _mode,

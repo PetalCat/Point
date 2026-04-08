@@ -201,8 +201,86 @@ class LocationNotifier extends Notifier<LocationState> {
     state = state.copyWith(places: List.from(places));
   }
 
+  /// Load all places (group + personal) and set them in state.
+  Future<void> loadPlaces(List<String> groupIds) async {
+    final api = ref.read(apiServiceProvider);
+    final allPlaces = <Map<String, dynamic>>[];
+    for (final gId in groupIds) {
+      try {
+        final places = await api.listPlaces(gId);
+        allPlaces.addAll(places);
+      } catch (_) {}
+    }
+    try {
+      final personalPlaces = await api.listPersonalPlaces();
+      allPlaces.addAll(personalPlaces);
+    } catch (_) {}
+    state = state.copyWith(places: List.from(allPlaces));
+  }
+
+  /// Fetch location history for a user. Returns the raw list without storing in state.
+  Future<List<Map<String, dynamic>>> getHistory(
+    String userId, {
+    int? since,
+    int limit = 100,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    return await api.getHistory(userId, since: since, limit: limit);
+  }
+
+  /// Create a group place (geofence).
+  Future<Map<String, dynamic>> createPlace(
+    String groupId,
+    String name, {
+    String geometryType = 'circle',
+    double? lat,
+    double? lon,
+    double? radius,
+    List<Map<String, double>>? polygonPoints,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    return await api.createPlace(
+      groupId,
+      name,
+      geometryType: geometryType,
+      lat: lat,
+      lon: lon,
+      radius: radius,
+      polygonPoints: polygonPoints,
+    );
+  }
+
+  /// Create a personal place (geofence).
+  Future<Map<String, dynamic>> createPersonalPlace(
+    String name, {
+    String geometryType = 'circle',
+    double? lat,
+    double? lon,
+    double? radius,
+    List<Map<String, double>>? polygonPoints,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    return await api.createPersonalPlace(
+      name,
+      geometryType: geometryType,
+      lat: lat,
+      lon: lon,
+      radius: radius,
+      polygonPoints: polygonPoints,
+    );
+  }
+
   void setZoneConsentedUsers(List<String> userIds) {
     state = state.copyWith(zoneConsentedUsers: Set.from(userIds));
+  }
+
+  /// Load granted zone consents from the server and set them in state.
+  Future<void> loadZoneConsents() async {
+    final api = ref.read(apiServiceProvider);
+    final grantedConsents = await api.listGrantedZoneConsents();
+    setZoneConsentedUsers(
+      grantedConsents.map((c) => c['consenter_id'] as String).toList(),
+    );
   }
 
   /// Start actively viewing a person.

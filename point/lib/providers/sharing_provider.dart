@@ -214,4 +214,13 @@ class SharingNotifier extends Notifier<SharingState> {
       debugPrint('SharingNotifier error: $e');
     }
   }
+
+  Future<Map<String, dynamic>> createTempShare(
+    String toUserId,
+    int durationMinutes, {
+    String precision = 'exact',
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    return await api.createTempShare(toUserId, durationMinutes, precision: precision);
+  }
 }

@@ -95,6 +95,76 @@ class GroupNotifier extends Notifier<GroupState> {
     }
   }
 
+  Future<void> updateMySettings(
+    String groupId, {
+    String? precision,
+    bool? sharing,
+    String? scheduleType,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    await api.updateMyGroupSettings(
+      groupId,
+      precision: precision,
+      sharing: sharing,
+      scheduleType: scheduleType,
+    );
+    await loadGroups();
+  }
+
+  Future<void> updateGroupSettings(
+    String groupId, {
+    String? name,
+    bool? membersCanInvite,
+  }) async {
+    final api = ref.read(apiServiceProvider);
+    await api.updateGroupSettings(
+      groupId,
+      name: name,
+      membersCanInvite: membersCanInvite,
+    );
+    await loadGroups();
+  }
+
+  Future<void> deleteGroup(String groupId) async {
+    final api = ref.read(apiServiceProvider);
+    await api.deleteGroup(groupId);
+    await loadGroups();
+  }
+
+  Future<void> updateMemberRole(
+    String groupId,
+    String memberId,
+    String role,
+  ) async {
+    final api = ref.read(apiServiceProvider);
+    await api.updateMemberRole(groupId, memberId, role);
+    await loadGroups();
+  }
+
+  Future<void> removeMember(String groupId, String memberId) async {
+    final api = ref.read(apiServiceProvider);
+    await api.removeMember(groupId, memberId);
+    await loadGroups();
+  }
+
+  Future<Map<String, dynamic>> createGroupInvite(String groupId) async {
+    final api = ref.read(apiServiceProvider);
+    return await api.createGroupInvite(groupId);
+  }
+
+  Future<Map<String, dynamic>> joinGroupByCode(String code) async {
+    final api = ref.read(apiServiceProvider);
+    final result = await api.joinGroupByCode(code);
+    await loadGroups();
+    return result;
+  }
+
+  Future<void> leaveGroup(String groupId) async {
+    final auth = ref.read(authProvider);
+    if (auth.userId == null) return;
+    await removeMember(groupId, auth.userId!);
+  }
+
   Future<bool> addMember(String groupId, String userId, {String? role}) async {
     final api = ref.read(apiServiceProvider);
     final crypto = ref.read(cryptoServiceProvider);

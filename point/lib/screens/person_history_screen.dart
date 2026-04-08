@@ -116,8 +116,7 @@ class _PersonHistoryScreenState extends ConsumerState<PersonHistoryScreen>
     setState(() { _loading = true; _error = null; });
 
     try {
-      final api = ref.read(apiServiceProvider);
-      final history = await api.getHistory(
+      final history = await ref.read(locationProvider.notifier).getHistory(
         widget.userId,
         since: _sinceTimestamp(),
         limit: _limitForRange(),

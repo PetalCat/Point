@@ -639,7 +639,7 @@ class ProfileTab extends ConsumerWidget {
                   return;
                 }
                 try {
-                  await ref.read(apiServiceProvider).changePassword(
+                  await ref.read(authProvider.notifier).changePassword(
                     currentCtrl.text,
                     newCtrl.text,
                   );
@@ -701,7 +701,7 @@ class ProfileTab extends ConsumerWidget {
             onPressed: () async {
               if (passwordCtrl.text.isEmpty) return;
               try {
-                await ref.read(apiServiceProvider).deleteAccount(
+                await ref.read(authProvider.notifier).deleteAccount(
                   passwordCtrl.text,
                 );
                 if (ctx.mounted) Navigator.pop(ctx);
@@ -729,7 +729,7 @@ class ProfileTab extends ConsumerWidget {
 
   void _generateInvite(BuildContext context, WidgetRef ref) async {
     try {
-      final result = await ref.read(apiServiceProvider).createInvite(maxUses: 10);
+      final result = await ref.read(authProvider.notifier).createInvite(maxUses: 10);
       final code = result['code'];
       if (context.mounted) {
         showDialog(
