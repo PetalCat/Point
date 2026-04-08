@@ -2,9 +2,10 @@ name: rust_lib_point
 description: "Utility to build Rust code"
 version: 0.0.1
 publish_to: none
+resolution: workspace
 
 environment:
-  sdk: '>=3.3.0 <4.0.0'
+  sdk: ^3.10.7
   flutter: '>=3.3.0'
 
 dependencies:
@@ -17,7 +18,7 @@ dev_dependencies:
   ffigen: ^11.0.0
   flutter_test:
     sdk: flutter
-  flutter_lints: ^2.0.0
+  flutter_lints: ^6.0.0
 
 flutter:
   plugin:

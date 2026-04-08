@@ -1,38 +1,34 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../theme.dart';
-import '../../providers/auth_provider.dart';
-import '../../providers/group_provider.dart';
-import '../../providers/location_provider.dart';
-import '../../providers/sharing_provider.dart';
-import '../../services/api_service.dart';
+import '../../providers.dart';
 import '../group_detail_screen.dart';
 
-class SharingTab extends StatefulWidget {
+class SharingTab extends ConsumerStatefulWidget {
   const SharingTab({super.key, this.onSwitchToMap});
 
   /// Called when the user taps "Find on map" in the person sheet.
   final VoidCallback? onSwitchToMap;
 
   @override
-  State<SharingTab> createState() => _SharingTabState();
+  ConsumerState<SharingTab> createState() => _SharingTabState();
 }
 
-class _SharingTabState extends State<SharingTab> {
+class _SharingTabState extends ConsumerState<SharingTab> {
   int _sharingFilter = 0; // 0=All, 1=People, 2=Groups, 3=Requests
 
   @override
   Widget build(BuildContext context) {
-    final groups = context.watch<GroupProvider>();
-    final sharing = context.watch<SharingProvider>();
+    final groups = ref.watch(groupProvider);
+    final sharing = ref.watch(sharingProvider);
     final filterLabels = ['All', 'People', 'Groups', 'Requests'];
 
     return RefreshIndicator(
       color: PointColors.accent,
       onRefresh: () async {
-        await groups.loadGroups();
-        await sharing.loadAll();
+        await ref.read(groupProvider.notifier).loadGroups();
+        await ref.read(sharingProvider.notifier).loadAll();
       },
       child: ListView(
       padding: const EdgeInsets.symmetric(horizontal: 14),
@@ -351,12 +347,12 @@ class _SharingTabState extends State<SharingTab> {
 
   Widget _buildPersonShareRow(
     Map<String, dynamic> share,
-    SharingProvider sharing,
+    SharingState sharing,
   ) {
     final userId = share['user_id'] as String? ?? '';
     final name = userId.split('@').first;
     return GestureDetector(
-      onTap: () => _showPersonSheet(userId, sharing),
+      onTap: () => _showPersonSheet(userId),
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -427,7 +423,7 @@ class _SharingTabState extends State<SharingTab> {
     );
   }
 
-  void _showPersonSheet(String userId, SharingProvider sharing) {
+  void _showPersonSheet(String userId) {
     final name = userId.split('@').first;
     final color = PointColors.colorForUser(userId);
 
@@ -528,7 +524,7 @@ class _SharingTabState extends State<SharingTab> {
                 );
                 if (confirmed == true) {
                   Navigator.pop(ctx);
-                  sharing.removeShare(userId);
+                  ref.read(sharingProvider.notifier).removeShare(userId);
                 }
               }, danger: true),
             ],
@@ -575,7 +571,7 @@ class _SharingTabState extends State<SharingTab> {
 
   Widget _buildIncomingRequestRow(
     Map<String, dynamic> request,
-    SharingProvider sharing,
+    SharingState sharing,
   ) {
     final userId = request['from_user_id'] as String? ?? '';
     final requestId = request['id'] as String? ?? '';
@@ -628,7 +624,7 @@ class _SharingTabState extends State<SharingTab> {
             ),
           ),
           GestureDetector(
-            onTap: () => sharing.rejectRequest(requestId),
+            onTap: () => ref.read(sharingProvider.notifier).rejectRequest(requestId),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
@@ -647,7 +643,7 @@ class _SharingTabState extends State<SharingTab> {
           ),
           const SizedBox(width: 6),
           GestureDetector(
-            onTap: () => sharing.acceptRequest(requestId),
+            onTap: () => ref.read(sharingProvider.notifier).acceptRequest(requestId),
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
               decoration: BoxDecoration(
@@ -735,14 +731,14 @@ class _SharingTabState extends State<SharingTab> {
     );
   }
 
-  Widget _buildGroupCard(dynamic g, GroupProvider groups) {
+  Widget _buildGroupCard(dynamic g, GroupState groups) {
     return GestureDetector(
       onTap: () async {
         await Navigator.push(
           context,
           MaterialPageRoute(builder: (_) => GroupDetailScreen(groupId: g.id)),
         );
-        groups.loadGroups();
+        ref.read(groupProvider.notifier).loadGroups();
       },
       child: Container(
         margin: const EdgeInsets.only(bottom: 10),
@@ -859,7 +855,7 @@ class _SharingTabState extends State<SharingTab> {
   void _showAddShareDialog() {
     final controller = TextEditingController();
     final domain =
-        context.read<AuthProvider>().userId?.split('@').last ?? 'point.local';
+        ref.read(authProvider).userId?.split('@').last ?? 'point.local';
     var selectedDuration = -1; // -1 = permanent, 0+ = minutes
 
     showModalBottomSheet(
@@ -1000,8 +996,8 @@ class _SharingTabState extends State<SharingTab> {
 
                     if (selectedDuration == -1) {
                       // Permanent share request
-                      final success = await context
-                          .read<SharingProvider>()
+                      final success = await ref
+                          .read(sharingProvider.notifier)
                           .sendRequest(userId);
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -1017,7 +1013,7 @@ class _SharingTabState extends State<SharingTab> {
                     } else {
                       // Temp share
                       try {
-                        await context.read<ApiService>().createTempShare(
+                        await ref.read(apiServiceProvider).createTempShare(
                           userId,
                           selectedDuration,
                         );
@@ -1128,13 +1124,13 @@ class _SharingTabState extends State<SharingTab> {
             onPressed: () async {
               if (controller.text.trim().isEmpty) return;
               Navigator.pop(ctx);
-              final group = await context.read<GroupProvider>().createGroup(
+              final group = await ref.read(groupProvider.notifier).createGroup(
                 controller.text.trim(),
               );
               if (group != null && context.mounted) {
-                context.read<LocationProvider>().setActiveGroups(
-                  context
-                      .read<GroupProvider>()
+                ref.read(locationProvider.notifier).setActiveGroups(
+                  ref
+                      .read(groupProvider)
                       .groups
                       .map((g) => g.id)
                       .toList(),
@@ -1176,11 +1172,11 @@ class _SharingTabState extends State<SharingTab> {
               if (code.isEmpty) return;
               Navigator.pop(ctx);
               try {
-                await context.read<ApiService>().joinGroupByCode(code);
-                await context.read<GroupProvider>().loadGroups();
-                context.read<LocationProvider>().setActiveGroups(
-                  context
-                      .read<GroupProvider>()
+                await ref.read(apiServiceProvider).joinGroupByCode(code);
+                await ref.read(groupProvider.notifier).loadGroups();
+                ref.read(locationProvider.notifier).setActiveGroups(
+                  ref
+                      .read(groupProvider)
                       .groups
                       .map((g) => g.id)
                       .toList(),

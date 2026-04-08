@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../config.dart';
-import '../providers/auth_provider.dart';
+import '../providers.dart';
 import '../theme.dart';
 
-class RegisterScreen extends StatefulWidget {
+class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
 
   @override
-  State<RegisterScreen> createState() => _RegisterScreenState();
+  ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends State<RegisterScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _displayNameController = TextEditingController();
@@ -48,7 +48,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _submit() async {
     if (_submitting) return;
 
-    // Save server URL first
     final serverText = _serverUrlController.text.trim();
     if (serverText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -62,9 +61,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _submitting = true);
-    final auth = context.read<AuthProvider>();
     final inviteCode = _inviteCodeController.text.trim();
-    final success = await auth.register(
+    final success = await ref.read(authProvider.notifier).register(
       _usernameController.text.trim(),
       _displayNameController.text.trim(),
       _passwordController.text,
@@ -80,7 +78,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final auth = ref.watch(authProvider);
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -107,7 +105,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
                 ),
               ),
               const SizedBox(height: 32),
-              // Server URL section
               if (_editingServer) ...[
                 _buildTextField(
                   controller: _serverUrlController,

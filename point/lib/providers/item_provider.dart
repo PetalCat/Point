@@ -1,22 +1,32 @@
 import 'package:flutter/foundation.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../models/item.dart';
-import '../services/api_service.dart';
+import '../providers.dart';
 
-class ItemProvider extends ChangeNotifier {
-  final ApiService _api;
-  List<Item> _items = [];
+class ItemState {
+  final List<Item> items;
 
-  List<Item> get items => _items;
+  const ItemState({this.items = const []});
 
-  ItemProvider(this._api);
+  ItemState copyWith({List<Item>? items}) {
+    return ItemState(items: items ?? this.items);
+  }
+}
+
+class ItemNotifier extends Notifier<ItemState> {
+  @override
+  ItemState build() {
+    return const ItemState();
+  }
 
   Future<void> loadItems() async {
+    final api = ref.read(apiServiceProvider);
     try {
-      _items = await _api.listItems();
+      final items = await api.listItems();
+      state = state.copyWith(items: items);
     } catch (e) {
-      debugPrint('ItemProvider error: $e');
+      debugPrint('ItemNotifier error: $e');
     }
-    notifyListeners();
   }
 
   Future<Item?> createItem(
@@ -24,10 +34,10 @@ class ItemProvider extends ChangeNotifier {
     String trackerType, {
     String? sourceId,
   }) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      final item = await _api.createItem(name, trackerType, sourceId: sourceId);
-      _items.add(item);
-      notifyListeners();
+      final item = await api.createItem(name, trackerType, sourceId: sourceId);
+      state = state.copyWith(items: [...state.items, item]);
       return item;
     } catch (_) {
       return null;

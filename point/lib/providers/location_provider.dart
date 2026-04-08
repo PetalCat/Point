@@ -4,12 +4,11 @@ import 'dart:math' as math;
 import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../models/location_update.dart';
-import '../providers/ghost_provider.dart';
-import '../services/crypto_service.dart';
+import '../providers.dart';
 import '../services/location_service.dart';
-import '../services/ws_service.dart';
 
 class TrailPoint {
   final double lat;
@@ -26,9 +25,9 @@ class PersonLocation {
   final int timestamp;
   final int? battery;
   final String? activity;
-  final double? speed; // meters per second
+  final double? speed;
   final bool online;
-  final String precision; // 'exact', 'approximate', or 'city'
+  final String precision;
 
   PersonLocation({
     required this.userId,
@@ -69,248 +68,274 @@ class PersonLocation {
   }
 }
 
-class LocationProvider extends ChangeNotifier {
-  final WsService _wsService;
-  final LocationService _locationService;
-  final CryptoService _cryptoService;
-  GhostProvider? _ghostProvider;
-  final Battery _battery = Battery();
+class LocationState {
+  final Map<String, PersonLocation> people;
+  final Map<String, List<TrailPoint>> trails;
+  final Position? myPosition;
+  final bool isSharing;
+  final bool isGhostMode;
+  final List<Map<String, dynamic>> places;
+  final String? viewingUserId;
+  final DateTime? lastLocationSent;
+  final String? myUserId;
+  final List<String> activeGroupIds;
+  final List<String> activeUserIds;
+  final Set<String> zoneConsentedUsers;
 
-  final Map<String, PersonLocation> _people = {};
-  final Map<String, List<TrailPoint>> _trails = {};
-  String? _myUserId;
-  Position? _myPosition;
-  bool _isSharing = false;
-  bool _ghostMode = false;
-  List<String> _activeGroupIds = [];
-  List<String> _activeUserIds = []; // direct person-to-person sharing
-  List<Map<String, dynamic>> _places = [];
+  const LocationState({
+    this.people = const {},
+    this.trails = const {},
+    this.myPosition,
+    this.isSharing = false,
+    this.isGhostMode = false,
+    this.places = const [],
+    this.viewingUserId,
+    this.lastLocationSent,
+    this.myUserId,
+    this.activeGroupIds = const [],
+    this.activeUserIds = const [],
+    this.zoneConsentedUsers = const {},
+  });
+
+  LocationState copyWith({
+    Map<String, PersonLocation>? people,
+    Map<String, List<TrailPoint>>? trails,
+    Position? myPosition,
+    bool? isSharing,
+    bool? isGhostMode,
+    List<Map<String, dynamic>>? places,
+    String? viewingUserId,
+    DateTime? lastLocationSent,
+    String? myUserId,
+    List<String>? activeGroupIds,
+    List<String>? activeUserIds,
+    Set<String>? zoneConsentedUsers,
+    bool clearViewingUserId = false,
+    bool clearMyPosition = false,
+  }) {
+    return LocationState(
+      people: people ?? this.people,
+      trails: trails ?? this.trails,
+      myPosition: clearMyPosition ? null : (myPosition ?? this.myPosition),
+      isSharing: isSharing ?? this.isSharing,
+      isGhostMode: isGhostMode ?? this.isGhostMode,
+      places: places ?? this.places,
+      viewingUserId: clearViewingUserId ? null : (viewingUserId ?? this.viewingUserId),
+      lastLocationSent: lastLocationSent ?? this.lastLocationSent,
+      myUserId: myUserId ?? this.myUserId,
+      activeGroupIds: activeGroupIds ?? this.activeGroupIds,
+      activeUserIds: activeUserIds ?? this.activeUserIds,
+      zoneConsentedUsers: zoneConsentedUsers ?? this.zoneConsentedUsers,
+    );
+  }
+}
+
+class LocationNotifier extends Notifier<LocationState> {
+  final Battery _battery = Battery();
   final Set<String> _insidePlaces = {};
-  // Track per-person per-place state for personal zones: personId -> set of placeIds
   final Map<String, Set<String>> _personInsidePlaces = {};
-  // Only evaluate personal zones for users who have explicitly consented
-  Set<String> _zoneConsentedUsers = {};
+  final Map<String, DateTime> _lastNudge = {};
 
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
   StreamSubscription<Position>? _positionSubscription;
-
-  // Nudge system — request fresh location when actively viewing someone
-  String? _viewingUserId;
   Timer? _nudgeTimer;
-  final Map<String, DateTime> _lastNudge = {};
-  DateTime? _lastLocationSent;
 
   final _geofenceEventsController =
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get geofenceEvents =>
       _geofenceEventsController.stream;
 
-  Map<String, PersonLocation> get people => Map.unmodifiable(_people);
-  Map<String, List<TrailPoint>> get trails => Map.unmodifiable(_trails);
-  List<Map<String, dynamic>> get places => List.unmodifiable(_places);
-  Position? get myPosition => _myPosition;
-  bool get isSharing => _isSharing;
-  DateTime? get lastLocationSent => _lastLocationSent;
-  bool get isGhostMode => _ghostMode;
-
-  void setMyUserId(String id) {
-    _myUserId = id;
-  }
-
-  void setGhostProvider(GhostProvider gp) {
-    _ghostProvider = gp;
-  }
-
-  LocationProvider(this._wsService, this._locationService, this._cryptoService) {
-    _wsSubscription = _wsService.messages.listen(_handleWsMessage);
+  @override
+  LocationState build() {
+    final wsService = ref.read(wsServiceProvider);
+    _wsSubscription = wsService.messages.listen(_handleWsMessage);
     _fetchInitialPosition();
+
+    ref.onDispose(() {
+      _wsSubscription?.cancel();
+      _positionSubscription?.cancel();
+      _nudgeTimer?.cancel();
+      _geofenceEventsController.close();
+    });
+
+    return const LocationState();
   }
 
   Future<void> _fetchInitialPosition() async {
+    final locationService = ref.read(locationServiceProvider);
     try {
-      final granted = await _locationService.requestPermission();
+      final granted = await locationService.requestPermission();
       if (!granted) return;
-      final pos = await _locationService.getCurrentPosition();
+      final pos = await locationService.getCurrentPosition();
       if (pos != null) {
-        _myPosition = pos;
-        notifyListeners();
+        state = state.copyWith(myPosition: pos);
       }
-    } catch (_) {
-      // Geolocation not available (e.g. web without HTTPS)
-    }
+    } catch (_) {}
+  }
+
+  void setMyUserId(String id) {
+    state = state.copyWith(myUserId: id);
   }
 
   void setActiveGroups(List<String> groupIds) {
-    _activeGroupIds = List.from(groupIds);
+    state = state.copyWith(activeGroupIds: List.from(groupIds));
   }
 
   void setActiveUserIds(List<String> userIds) {
-    _activeUserIds = List.from(userIds);
+    state = state.copyWith(activeUserIds: List.from(userIds));
   }
 
   void shareWithUser(String userId) {
-    if (!_activeUserIds.contains(userId)) {
-      _activeUserIds.add(userId);
+    if (!state.activeUserIds.contains(userId)) {
+      state = state.copyWith(activeUserIds: [...state.activeUserIds, userId]);
     }
   }
 
   void stopSharingWithUser(String userId) {
-    _activeUserIds.remove(userId);
+    state = state.copyWith(
+      activeUserIds: state.activeUserIds.where((id) => id != userId).toList(),
+    );
   }
 
   void setPlaces(List<Map<String, dynamic>> places) {
-    _places = List.from(places);
+    state = state.copyWith(places: List.from(places));
   }
 
-  /// Start actively viewing a person — triggers nudge for fresh location.
-  /// Continues nudging periodically while viewing, slowing down if they're still.
+  void setZoneConsentedUsers(List<String> userIds) {
+    state = state.copyWith(zoneConsentedUsers: Set.from(userIds));
+  }
+
+  /// Start actively viewing a person.
   void startViewing(String userId) {
-    _viewingUserId = userId;
+    state = state.copyWith(viewingUserId: userId);
     _nudgeTimer?.cancel();
-    // Send initial nudge
     _sendNudge(userId);
-    // Schedule recurring nudges
     _scheduleNextNudge();
   }
 
-  /// Stop viewing — cancel nudge timer.
   void stopViewing() {
-    _viewingUserId = null;
+    state = state.copyWith(clearViewingUserId: true);
     _nudgeTimer?.cancel();
     _nudgeTimer = null;
   }
 
   void _sendNudge(String userId) {
-    // Debounce: min 15 seconds between nudges to the same person
+    final wsService = ref.read(wsServiceProvider);
     final lastTime = _lastNudge[userId];
     if (lastTime != null && DateTime.now().difference(lastTime).inSeconds < 15) {
       return;
     }
-    _wsService.requestFreshLocation(userId);
+    wsService.requestFreshLocation(userId);
     _lastNudge[userId] = DateTime.now();
     debugPrint('[Location] Nudged $userId for fresh location');
   }
 
   void _scheduleNextNudge() {
-    if (_viewingUserId == null) return;
-    final userId = _viewingUserId!;
-    final person = _people[userId];
+    final viewingUserId = state.viewingUserId;
+    if (viewingUserId == null) return;
+    final person = state.people[viewingUserId];
 
-    // Adaptive interval based on whether the person is moving
     Duration interval;
     if (person == null) {
-      interval = const Duration(seconds: 15); // unknown state, nudge soon
+      interval = const Duration(seconds: 15);
     } else {
       final speed = person.speed ?? 0;
       final secSinceUpdate = DateTime.now().millisecondsSinceEpoch ~/ 1000 -
           (person.timestamp > 9999999999 ? person.timestamp ~/ 1000 : person.timestamp);
 
       if (speed > 1.0) {
-        // Moving — nudge every 15s
         interval = const Duration(seconds: 15);
       } else if (secSinceUpdate < 120) {
-        // Recently updated but still — nudge every 45s
         interval = const Duration(seconds: 45);
       } else {
-        // Stale and still — nudge every 2 min
         interval = const Duration(minutes: 2);
       }
     }
 
     _nudgeTimer = Timer(interval, () {
-      if (_viewingUserId == userId) {
-        _sendNudge(userId);
-        _scheduleNextNudge(); // reschedule
+      if (state.viewingUserId == viewingUserId) {
+        _sendNudge(viewingUserId);
+        _scheduleNextNudge();
       }
     });
   }
 
-  void setZoneConsentedUsers(List<String> userIds) {
-    _zoneConsentedUsers = Set.from(userIds);
+  TrackingMode get trackingMode {
+    final locationService = ref.read(locationServiceProvider);
+    return locationService.currentMode;
   }
-
-  TrackingMode get trackingMode => _locationService.currentMode;
 
   Future<void> startSharing({TrackingMode mode = TrackingMode.adaptive}) async {
+    final locationService = ref.read(locationServiceProvider);
     try {
-      final granted = await _locationService.requestPermission();
+      final granted = await locationService.requestPermission();
       if (!granted) return;
 
-      _locationService.startTracking(mode: mode);
-      _positionSubscription = _locationService.positions.listen(_onPosition);
-      _isSharing = true;
-      notifyListeners();
-    } catch (_) {
-      // Geolocation not available
-    }
+      locationService.startTracking(mode: mode);
+      _positionSubscription = locationService.positions.listen(_onPosition);
+      state = state.copyWith(isSharing: true);
+    } catch (_) {}
   }
 
-  /// Switch tracking frequency (e.g. when following someone → realtime).
   void setTrackingMode(TrackingMode mode) {
-    _locationService.setMode(mode);
-    notifyListeners();
+    final locationService = ref.read(locationServiceProvider);
+    locationService.setMode(mode);
   }
 
   void stopSharing() {
-    _locationService.stopTracking();
+    final locationService = ref.read(locationServiceProvider);
+    locationService.stopTracking();
     _positionSubscription?.cancel();
     _positionSubscription = null;
-    _isSharing = false;
-    _ghostMode = false;
-    notifyListeners();
+    state = state.copyWith(isSharing: false, isGhostMode: false);
   }
 
   void toggleGhostMode() {
-    _ghostMode = !_ghostMode;
-    if (_ghostMode) {
-      // Stop the location subscription but keep _isSharing true so it auto-resumes
-      _locationService.stopTracking();
+    final locationService = ref.read(locationServiceProvider);
+    final newGhostMode = !state.isGhostMode;
+    if (newGhostMode) {
+      locationService.stopTracking();
       _positionSubscription?.cancel();
       _positionSubscription = null;
-    } else if (_isSharing) {
-      // Resume with current tracking mode
-      _locationService.startTracking(mode: _locationService.currentMode);
-      _positionSubscription = _locationService.positions.listen(_onPosition);
+    } else if (state.isSharing) {
+      locationService.startTracking(mode: locationService.currentMode);
+      _positionSubscription = locationService.positions.listen(_onPosition);
     }
-    notifyListeners();
+    state = state.copyWith(isGhostMode: newGhostMode);
   }
 
   void _onPosition(Position position) async {
-    // Global ghost — stop all sharing
-    final gp = _ghostProvider;
-    final globalGhost = _ghostMode || (gp != null && gp.isGhostActive);
-    if (globalGhost && gp != null && !gp.isGhostedForGroup('__any__')) {
-      // Per-group ghost only — we still update position but skip ghosted groups below
-    } else if (_ghostMode || (gp != null && gp.isGlobalGhostOn) || (gp != null && gp.hasActiveTimer)) {
-      // Fully ghosted — don't send anything but still track our own position
-      _myPosition = position;
-      notifyListeners();
+    final ghostState = ref.read(ghostProvider);
+    final globalGhost = state.isGhostMode || ghostState.isGhostActive;
+
+    if (globalGhost && !ghostState.isGhostedForGroup('__any__')) {
+      // Per-group ghost only
+    } else if (state.isGhostMode || ghostState.isGlobalGhostOn || ghostState.hasActiveTimer) {
+      state = state.copyWith(myPosition: position);
       return;
     }
 
-    _myPosition = position;
+    // Update position + trail
+    final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
 
-    // Add own position to trail
-    if (_myUserId != null && _myUserId!.isNotEmpty) {
-      final trail = _trails.putIfAbsent(_myUserId!, () => []);
+    if (state.myUserId != null && state.myUserId!.isNotEmpty) {
+      final trail = List<TrailPoint>.from(newTrails[state.myUserId!] ?? []);
       final ts = position.timestamp.millisecondsSinceEpoch ~/ 1000;
       trail.add(TrailPoint(position.latitude, position.longitude, ts));
       final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
       trail.removeWhere((p) => p.timestamp < cutoff);
+      newTrails[state.myUserId!] = trail;
     }
 
-    notifyListeners();
+    state = state.copyWith(myPosition: position, trails: newTrails);
 
     int? batteryLevel;
     try {
       batteryLevel = await _battery.batteryLevel;
-    } catch (_) {
-      // Battery info unavailable on some platforms
-    }
+    } catch (_) {}
 
-    // Feed battery to ghost provider for battery rules
     if (batteryLevel != null) {
-      gp?.updateBattery(batteryLevel);
+      ref.read(ghostProvider.notifier).updateBattery(batteryLevel);
     }
 
     final locationData = LocationData(
@@ -324,39 +349,34 @@ class LocationProvider extends ChangeNotifier {
     );
 
     final locationJson = locationData.toJson();
+    final cryptoService = ref.read(cryptoServiceProvider);
+    final wsService = ref.read(wsServiceProvider);
 
-    for (final groupId in _activeGroupIds) {
-      // Per-group ghost check — skip groups that are ghosted by rules
-      if (gp != null && gp.isGhostedForGroup(groupId)) {
-        continue;
-      }
+    for (final groupId in state.activeGroupIds) {
+      if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
-        final blob = await _cryptoService.encrypt(groupId, locationJson);
-        _wsService.sendLocationUpdate(
+        final blob = await cryptoService.encrypt(groupId, locationJson);
+        wsService.sendLocationUpdate(
           recipientType: 'group',
           recipientId: groupId,
           encryptedBlob: blob,
           sourceType: 'gps',
           timestamp: locationData.timestamp,
         );
-        _lastLocationSent = DateTime.now();
+        state = state.copyWith(lastLocationSent: DateTime.now());
       } catch (e) {
         debugPrint('[Location] Encrypt failed for group $groupId: $e');
       }
     }
 
-    for (final userId in _activeUserIds) {
-      // Per-user ghost check via pairwise group
-      if (gp != null && gp.isGhostedForGroup(userId)) {
-        continue;
-      }
+    for (final userId in state.activeUserIds) {
+      if (ghostState.isGhostedForGroup(userId)) continue;
       try {
-        // Use pairwise MLS group ID for direct sharing encryption
-        final encryptId = _myUserId != null
-            ? _cryptoService.pairwiseGroupId(_myUserId!, userId)
+        final encryptId = state.myUserId != null
+            ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
             : userId;
-        final blob = await _cryptoService.encrypt(encryptId, locationJson);
-        _wsService.sendLocationUpdate(
+        final blob = await cryptoService.encrypt(encryptId, locationJson);
+        wsService.sendLocationUpdate(
           recipientType: 'user',
           recipientId: userId,
           encryptedBlob: blob,
@@ -368,12 +388,12 @@ class LocationProvider extends ChangeNotifier {
       }
     }
 
-    // Client-side geofence evaluation
     _checkGeofences(position.latitude, position.longitude);
   }
 
   void _checkGeofences(double lat, double lon) {
-    for (final place in _places) {
+    final wsService = ref.read(wsServiceProvider);
+    for (final place in state.places) {
       final placeId = place['id'] as String;
       final placeName = place['name'] as String? ?? '';
       final geometryType = place['geometry_type'] as String? ?? 'circle';
@@ -395,7 +415,7 @@ class LocationProvider extends ChangeNotifier {
 
       if (isInside && !wasInside) {
         _insidePlaces.add(placeId);
-        _wsService.send({
+        wsService.send({
           'type': 'place.triggered',
           'place_id': placeId,
           'place_name': placeName,
@@ -408,7 +428,7 @@ class LocationProvider extends ChangeNotifier {
         });
       } else if (!isInside && wasInside) {
         _insidePlaces.remove(placeId);
-        _wsService.send({
+        wsService.send({
           'type': 'place.triggered',
           'place_id': placeId,
           'place_name': placeName,
@@ -424,10 +444,10 @@ class LocationProvider extends ChangeNotifier {
   }
 
   void _checkPersonAgainstPersonalZones(String userId, double lat, double lon) {
-    // Only evaluate personal zones for users who have explicitly consented
-    if (!_zoneConsentedUsers.contains(userId)) return;
+    if (!state.zoneConsentedUsers.contains(userId)) return;
+    final wsService = ref.read(wsServiceProvider);
 
-    for (final place in _places) {
+    for (final place in state.places) {
       if (place['is_personal'] != true) continue;
       final placeId = place['id'] as String;
       final placeName = place['name'] as String? ?? '';
@@ -451,7 +471,7 @@ class LocationProvider extends ChangeNotifier {
 
       if (isInside && !wasInside) {
         personPlaces.add(placeId);
-        _wsService.send({
+        wsService.send({
           'type': 'place.triggered',
           'place_id': placeId,
           'place_name': placeName,
@@ -466,7 +486,7 @@ class LocationProvider extends ChangeNotifier {
         });
       } else if (!isInside && wasInside) {
         personPlaces.remove(placeId);
-        _wsService.send({
+        wsService.send({
           'type': 'place.triggered',
           'place_id': placeId,
           'place_name': placeName,
@@ -483,7 +503,6 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
-  /// Ray-casting point-in-polygon test.
   static bool _isInsidePolygon(double lat, double lon, List<dynamic> points) {
     int crossings = 0;
     for (int i = 0; i < points.length; i++) {
@@ -504,14 +523,10 @@ class LocationProvider extends ChangeNotifier {
     return crossings % 2 == 1;
   }
 
-  /// Haversine distance in meters between two lat/lon points.
   static double _haversineDistance(
-    double lat1,
-    double lon1,
-    double lat2,
-    double lon2,
+    double lat1, double lon1, double lat2, double lon2,
   ) {
-    const earthRadius = 6371000.0; // meters
+    const earthRadius = 6371000.0;
     final dLat = _toRadians(lat2 - lat1);
     final dLon = _toRadians(lon2 - lon1);
     final a =
@@ -534,16 +549,14 @@ class LocationProvider extends ChangeNotifier {
     } else if (type == 'presence.broadcast' || type == 'presence.update') {
       _handlePresenceBroadcast(message);
     } else if (type == 'location.nudge') {
-      // Someone is viewing us — send a fresh position immediately
       _handleNudge();
     }
   }
 
-  /// Respond to a nudge by sending our current position immediately.
   void _handleNudge() {
-    if (_myPosition != null && _isSharing && !_ghostMode) {
-      debugPrint('[Location] Received nudge — sending fresh position');
-      _onPosition(_myPosition!);
+    if (state.myPosition != null && state.isSharing && !state.isGhostMode) {
+      debugPrint('[Location] Received nudge -- sending fresh position');
+      _onPosition(state.myPosition!);
     }
   }
 
@@ -556,10 +569,10 @@ class LocationProvider extends ChangeNotifier {
 
     if (senderId == null || blob == null) return;
 
-    // For direct shares, use pairwise MLS group ID for decryption
+    final cryptoService = ref.read(cryptoServiceProvider);
     String decryptId;
-    if (recipientType == 'user' && _myUserId != null) {
-      decryptId = _cryptoService.pairwiseGroupId(_myUserId!, senderId);
+    if (recipientType == 'user' && state.myUserId != null) {
+      decryptId = cryptoService.pairwiseGroupId(state.myUserId!, senderId);
     } else {
       decryptId = recipientId!;
     }
@@ -574,14 +587,18 @@ class LocationProvider extends ChangeNotifier {
     String recipientId,
     Map<String, dynamic> message,
   ) async {
+    final cryptoService = ref.read(cryptoServiceProvider);
     try {
-      final json = await _cryptoService.decrypt(recipientId, blob);
+      final json = await cryptoService.decrypt(recipientId, blob);
       final data = LocationData.fromJson(json);
 
-      final existing = _people[senderId];
+      final newPeople = Map<String, PersonLocation>.from(state.people);
+      final newTrails = Map<String, List<TrailPoint>>.from(state.trails);
+
+      final existing = newPeople[senderId];
       final precision =
           (message['precision'] as String?) ?? existing?.precision ?? 'exact';
-      _people[senderId] = PersonLocation(
+      newPeople[senderId] = PersonLocation(
         userId: senderId,
         lat: data.lat,
         lon: data.lon,
@@ -594,19 +611,18 @@ class LocationProvider extends ChangeNotifier {
         precision: precision,
       );
 
-      // Append to trail (normalize timestamp to seconds)
-      final trail = _trails.putIfAbsent(senderId, () => []);
+      final trail = List<TrailPoint>.from(newTrails[senderId] ?? []);
       final tsSec = data.timestamp > 9999999999
           ? data.timestamp ~/ 1000
           : data.timestamp;
       trail.add(TrailPoint(data.lat, data.lon, tsSec));
       final cutoff = DateTime.now().millisecondsSinceEpoch ~/ 1000 - 1800;
       trail.removeWhere((p) => p.timestamp < cutoff);
+      newTrails[senderId] = trail;
 
-      // Check if this person entered/exited any of our personal zones
+      state = state.copyWith(people: newPeople, trails: newTrails);
+
       _checkPersonAgainstPersonalZones(senderId, data.lat, data.lon);
-
-      notifyListeners();
     } catch (_) {
       // Ignore malformed location data
     }
@@ -620,15 +636,16 @@ class LocationProvider extends ChangeNotifier {
     final activity = message['activity'] as String?;
     final online = message['online'] as bool? ?? true;
 
-    final existing = _people[senderId];
+    final newPeople = Map<String, PersonLocation>.from(state.people);
+    final existing = newPeople[senderId];
     if (existing != null) {
-      _people[senderId] = existing.copyWith(
+      newPeople[senderId] = existing.copyWith(
         battery: battery,
         activity: activity,
         online: online,
       );
     } else {
-      _people[senderId] = PersonLocation(
+      newPeople[senderId] = PersonLocation(
         userId: senderId,
         lat: 0,
         lon: 0,
@@ -639,14 +656,6 @@ class LocationProvider extends ChangeNotifier {
         online: online,
       );
     }
-    notifyListeners();
-  }
-
-  @override
-  void dispose() {
-    _wsSubscription?.cancel();
-    _positionSubscription?.cancel();
-    _geofenceEventsController.close();
-    super.dispose();
+    state = state.copyWith(people: newPeople);
   }
 }

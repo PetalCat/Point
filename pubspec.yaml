@@ -1,0 +1,7 @@
+name: globalmap_workspace
+publish_to: none
+environment:
+  sdk: ^3.10.7
+workspace:
+  - point
+  - point/rust_builder

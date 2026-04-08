@@ -4,10 +4,9 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../providers/location_provider.dart';
-import '../services/api_service.dart';
+import '../providers.dart';
 import '../theme.dart';
 
 class LocationCluster {
@@ -34,7 +33,7 @@ class TrailHistoryPoint {
   TrailHistoryPoint(this.lat, this.lon, this.timestamp, {this.speed});
 }
 
-class PersonHistoryScreen extends StatefulWidget {
+class PersonHistoryScreen extends ConsumerStatefulWidget {
   final String userId;
   final String displayName;
   final Color userColor;
@@ -47,10 +46,10 @@ class PersonHistoryScreen extends StatefulWidget {
   });
 
   @override
-  State<PersonHistoryScreen> createState() => _PersonHistoryScreenState();
+  ConsumerState<PersonHistoryScreen> createState() => _PersonHistoryScreenState();
 }
 
-class _PersonHistoryScreenState extends State<PersonHistoryScreen>
+class _PersonHistoryScreenState extends ConsumerState<PersonHistoryScreen>
     with TickerProviderStateMixin {
   GoogleMapController? _mapController;
   int _selectedRange = 1;
@@ -117,14 +116,14 @@ class _PersonHistoryScreenState extends State<PersonHistoryScreen>
     setState(() { _loading = true; _error = null; });
 
     try {
-      final api = context.read<ApiService>();
+      final api = ref.read(apiServiceProvider);
       final history = await api.getHistory(
         widget.userId,
         since: _sinceTimestamp(),
         limit: _limitForRange(),
       );
 
-      final places = context.read<LocationProvider>().places;
+      final places = ref.read(locationProvider).places;
       final clusters = _clusterHistory(history, places);
       final trail = _parseTrailPoints(history);
 

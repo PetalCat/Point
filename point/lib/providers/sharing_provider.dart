@@ -1,42 +1,63 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
-import '../services/api_service.dart';
-import '../services/crypto_service.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import '../providers.dart';
 import '../services/notification_service.dart';
 import '../services/ws_service.dart';
 
-class SharingProvider extends ChangeNotifier {
-  final ApiService _api;
-  CryptoService? _crypto;
-  String? _myUserId;
+class SharingState {
+  final List<Map<String, dynamic>> shares;
+  final List<Map<String, dynamic>> incomingRequests;
+  final List<Map<String, dynamic>> outgoingRequests;
+  final List<Map<String, dynamic>> incomingZoneConsents;
+  final bool loading;
+  final String? myUserId;
 
+  const SharingState({
+    this.shares = const [],
+    this.incomingRequests = const [],
+    this.outgoingRequests = const [],
+    this.incomingZoneConsents = const [],
+    this.loading = false,
+    this.myUserId,
+  });
+
+  int get pendingCount => incomingRequests.length + incomingZoneConsents.length;
+
+  SharingState copyWith({
+    List<Map<String, dynamic>>? shares,
+    List<Map<String, dynamic>>? incomingRequests,
+    List<Map<String, dynamic>>? outgoingRequests,
+    List<Map<String, dynamic>>? incomingZoneConsents,
+    bool? loading,
+    String? myUserId,
+  }) {
+    return SharingState(
+      shares: shares ?? this.shares,
+      incomingRequests: incomingRequests ?? this.incomingRequests,
+      outgoingRequests: outgoingRequests ?? this.outgoingRequests,
+      incomingZoneConsents: incomingZoneConsents ?? this.incomingZoneConsents,
+      loading: loading ?? this.loading,
+      myUserId: myUserId ?? this.myUserId,
+    );
+  }
+}
+
+class SharingNotifier extends Notifier<SharingState> {
   StreamSubscription? _wsSub;
 
-  List<Map<String, dynamic>> _shares = [];
-  List<Map<String, dynamic>> _incomingRequests = [];
-  List<Map<String, dynamic>> _outgoingRequests = [];
-  List<Map<String, dynamic>> _incomingZoneConsents = [];
-  bool _loading = false;
-
-  List<Map<String, dynamic>> get shares => _shares;
-  List<Map<String, dynamic>> get incomingRequests => _incomingRequests;
-  List<Map<String, dynamic>> get outgoingRequests => _outgoingRequests;
-  List<Map<String, dynamic>> get incomingZoneConsents => _incomingZoneConsents;
-  int get pendingCount =>
-      _incomingRequests.length + _incomingZoneConsents.length;
-  bool get isLoading => _loading;
-
-  SharingProvider(this._api);
-
-  void setCryptoService(CryptoService crypto) {
-    _crypto = crypto;
+  @override
+  SharingState build() {
+    ref.onDispose(() {
+      _wsSub?.cancel();
+    });
+    return const SharingState();
   }
 
   void setMyUserId(String userId) {
-    _myUserId = userId;
+    state = state.copyWith(myUserId: userId);
   }
 
-  /// Connect to WebSocket to listen for share events
   void listenToWs(WsService ws) {
     _wsSub?.cancel();
     _wsSub = ws.messages.listen(_handleWsMessage);
@@ -47,7 +68,6 @@ class SharingProvider extends ChangeNotifier {
     if (type == 'share.request' ||
         type == 'share.accepted' ||
         type == 'share.rejected') {
-      // Auto-refresh when we get any share-related WS message
       loadAll();
     }
     if (type == 'share.request') {
@@ -61,7 +81,6 @@ class SharingProvider extends ChangeNotifier {
             : '$displayName wants to share with you',
       );
     }
-    // Zone consent WS events
     if (type == 'zone.consent_request' ||
         type == 'zone.consent_accepted' ||
         type == 'zone.consent_rejected') {
@@ -78,27 +97,33 @@ class SharingProvider extends ChangeNotifier {
   }
 
   Future<void> loadAll() async {
-    _loading = true;
-    notifyListeners();
+    final api = ref.read(apiServiceProvider);
+    state = state.copyWith(loading: true);
     try {
-      _shares = await _api.listShares();
-      _incomingRequests = await _api.listIncomingRequests();
-      _outgoingRequests = await _api.listOutgoingRequests();
+      final shares = await api.listShares();
+      final incoming = await api.listIncomingRequests();
+      final outgoing = await api.listOutgoingRequests();
+      List<Map<String, dynamic>> zoneConsents = [];
       try {
-        _incomingZoneConsents = await _api.listIncomingZoneConsents();
-      } catch (_) {
-        // Zone consent endpoint may not be available yet
-      }
+        zoneConsents = await api.listIncomingZoneConsents();
+      } catch (_) {}
+      state = state.copyWith(
+        shares: shares,
+        incomingRequests: incoming,
+        outgoingRequests: outgoing,
+        incomingZoneConsents: zoneConsents,
+        loading: false,
+      );
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
+      state = state.copyWith(loading: false);
     }
-    _loading = false;
-    notifyListeners();
   }
 
   Future<bool> sendRequest(String toUserId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.sendShareRequest(toUserId);
+      await api.sendShareRequest(toUserId);
       await loadAll();
       return true;
     } catch (_) {
@@ -107,20 +132,20 @@ class SharingProvider extends ChangeNotifier {
   }
 
   Future<void> acceptRequest(String requestId) async {
+    final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
     try {
-      // Find the request to get the other user's ID before accepting
-      final request = _incomingRequests.firstWhere(
+      final request = state.incomingRequests.firstWhere(
         (r) => r['id'] == requestId,
         orElse: () => <String, dynamic>{},
       );
       final otherUserId = request['from_user_id'] as String?;
 
-      await _api.acceptRequest(requestId);
+      await api.acceptRequest(requestId);
 
-      // If the requester is federated, notify their server of acceptance
-      if (otherUserId != null && otherUserId.contains('@') && _myUserId != null) {
+      if (otherUserId != null && otherUserId.contains('@') && state.myUserId != null) {
         try {
-          await _api.sendFederated(otherUserId, 'share.accept', {});
+          await api.sendFederated(otherUserId, 'share.accept', {});
         } catch (e) {
           debugPrint('[Sharing] Federation accept notify failed: $e');
         }
@@ -128,67 +153,65 @@ class SharingProvider extends ChangeNotifier {
 
       await loadAll();
 
-      // Set up MLS pairwise group for direct sharing
-      if (_crypto != null && _myUserId != null && otherUserId != null) {
+      if (state.myUserId != null && otherUserId != null) {
         try {
-          await _crypto!.setupDirectShare(_myUserId!, otherUserId);
+          await crypto.setupDirectShare(state.myUserId!, otherUserId);
         } catch (e) {
           debugPrint('[Sharing] MLS direct share setup failed: $e');
         }
       }
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
   }
 
   Future<void> rejectRequest(String requestId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.rejectRequest(requestId);
+      await api.rejectRequest(requestId);
       await loadAll();
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
   }
 
   Future<void> acceptZoneConsent(String ownerId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.acceptZoneConsent(ownerId);
+      await api.acceptZoneConsent(ownerId);
       await loadAll();
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
   }
 
   Future<void> rejectZoneConsent(String ownerId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.rejectZoneConsent(ownerId);
+      await api.rejectZoneConsent(ownerId);
       await loadAll();
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
   }
 
   Future<void> revokeZoneConsent(String ownerId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.revokeZoneConsent(ownerId);
+      await api.revokeZoneConsent(ownerId);
       await loadAll();
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
   }
 
   Future<void> removeShare(String userId) async {
+    final api = ref.read(apiServiceProvider);
     try {
-      await _api.removeShare(userId);
+      await api.removeShare(userId);
       await loadAll();
     } catch (e) {
-      debugPrint('SharingProvider error: $e');
+      debugPrint('SharingNotifier error: $e');
     }
-  }
-
-  @override
-  void dispose() {
-    _wsSub?.cancel();
-    super.dispose();
   }
 }

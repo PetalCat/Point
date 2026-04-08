@@ -1,47 +1,46 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 
-import 'providers/auth_provider.dart';
-import 'providers/ghost_provider.dart' show GhostProvider;
-import 'providers/group_provider.dart';
-import 'providers/item_provider.dart';
-import 'providers/location_provider.dart';
-import 'providers/sharing_provider.dart';
-import 'services/api_service.dart';
-import 'services/auth_service.dart';
-import 'services/location_service.dart';
-import 'services/ws_service.dart';
-import 'services/notification_service.dart';
+import 'providers.dart';
+import 'providers/ghost_provider.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 import 'theme.dart';
 
 import 'config.dart';
-import 'services/crypto_service.dart';
+import 'services/notification_service.dart';
 import 'src/rust/frb_generated.dart';
 
-class ThemeNotifier extends ChangeNotifier {
-  ThemeMode _mode = ThemeMode.system;
-  ThemeMode get mode => _mode;
+class ThemeModeState {
+  final ThemeMode mode;
+  const ThemeModeState({this.mode = ThemeMode.system});
+  ThemeModeState copyWith({ThemeMode? mode}) {
+    return ThemeModeState(mode: mode ?? this.mode);
+  }
+}
 
-  ThemeNotifier() { _load(); }
+class ThemeNotifier extends Notifier<ThemeModeState> {
+  @override
+  ThemeModeState build() {
+    _load();
+    return const ThemeModeState();
+  }
 
   Future<void> _load() async {
     final prefs = await SharedPreferences.getInstance();
     final saved = prefs.getString('theme_mode') ?? 'system';
-    _mode = saved == 'dark' ? ThemeMode.dark : saved == 'light' ? ThemeMode.light : ThemeMode.system;
-    notifyListeners();
+    final mode = saved == 'dark' ? ThemeMode.dark : saved == 'light' ? ThemeMode.light : ThemeMode.system;
+    state = state.copyWith(mode: mode);
   }
 
   Future<void> setMode(ThemeMode mode) async {
-    _mode = mode;
+    state = state.copyWith(mode: mode);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('theme_mode', mode == ThemeMode.dark ? 'dark' : mode == ThemeMode.light ? 'light' : 'system');
-    notifyListeners();
   }
 }
 
@@ -49,7 +48,6 @@ class ThemeNotifier extends ChangeNotifier {
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
-  // Wake-up push — the app will connect WS and process events when opened
 }
 
 void main() async {
@@ -58,7 +56,7 @@ void main() async {
   await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   await AppConfig.load();
   await NotificationService.init();
-  await GhostProvider.initBackground();
+  await GhostNotifier.initBackground();
 
   // FCM setup
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
@@ -67,7 +65,6 @@ void main() async {
   final fcmToken = await fcm.getToken();
   if (fcmToken != null) {
     debugPrint('FCM Token: $fcmToken');
-    // Token will be sent to server after login (in home_screen initServices)
   }
 
   // Handle foreground FCM messages
@@ -80,55 +77,33 @@ void main() async {
     }
   });
 
-  runApp(const PointApp());
+  runApp(const ProviderScope(child: PointApp()));
 }
 
-class PointApp extends StatelessWidget {
+class PointApp extends ConsumerWidget {
   const PointApp({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final apiService = ApiService();
-    final authService = AuthService();
-    final wsService = WsService();
-    final locationService = LocationService();
-    final cryptoService = CryptoService(apiService);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final themeModeState = ref.watch(themeProvider);
 
-    return MultiProvider(
-      providers: [
-        ChangeNotifierProvider(create: (_) => ThemeNotifier()),
-        ChangeNotifierProvider(create: (_) => GhostProvider()),
-        ChangeNotifierProvider(
-            create: (_) => AuthProvider(apiService, authService)),
-        ChangeNotifierProvider(create: (_) => GroupProvider(apiService)),
-        ChangeNotifierProvider(create: (_) => ItemProvider(apiService)),
-        ChangeNotifierProvider(create: (_) => SharingProvider(apiService)),
-        ChangeNotifierProvider(
-            create: (_) => LocationProvider(wsService, locationService, cryptoService)),
-        Provider.value(value: wsService),
-        Provider.value(value: apiService),
-        Provider.value(value: cryptoService),
-      ],
-      child: Consumer<ThemeNotifier>(
-        builder: (context, themeNotifier, _) => MaterialApp(
-          title: 'Point',
-          debugShowCheckedModeBanner: false,
-          theme: PointTheme.light(),
-          darkTheme: PointTheme.dark(),
-          themeMode: themeNotifier.mode,
-          home: const AuthGate(),
-        ),
-      ),
+    return MaterialApp(
+      title: 'Point',
+      debugShowCheckedModeBanner: false,
+      theme: PointTheme.light(),
+      darkTheme: PointTheme.dark(),
+      themeMode: themeModeState.mode,
+      home: const AuthGate(),
     );
   }
 }
 
-class AuthGate extends StatelessWidget {
+class AuthGate extends ConsumerWidget {
   const AuthGate({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
     if (auth.isLoading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }

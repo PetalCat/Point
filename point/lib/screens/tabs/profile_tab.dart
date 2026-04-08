@@ -1,26 +1,21 @@
 import 'package:flutter/material.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:package_info_plus/package_info_plus.dart';
-import 'package:provider/provider.dart';
 
 import '../../config.dart';
 import '../../theme.dart';
-import '../../providers/auth_provider.dart';
-import '../../providers/group_provider.dart';
-import '../../providers/location_provider.dart';
-import '../../providers/ghost_provider.dart';
-import '../../services/api_service.dart';
-import '../../main.dart' show ThemeNotifier;
+import '../../providers.dart';
 import '../../screens/ghost_rules_screen.dart';
 import '../../widgets/ghost_bottom_sheet.dart';
 
-class ProfileTab extends StatelessWidget {
+class ProfileTab extends ConsumerWidget {
   const ProfileTab({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
-    final groups = context.watch<GroupProvider>();
-    final location = context.watch<LocationProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final auth = ref.watch(authProvider);
+    final groups = ref.watch(groupProvider);
+    final location = ref.watch(locationProvider);
     final name = auth.displayName ?? 'User';
 
     return ListView(
@@ -137,9 +132,9 @@ class ProfileTab extends StatelessWidget {
                 location.isSharing,
                 onChanged: (val) {
                   if (val) {
-                    location.startSharing();
+                    ref.read(locationProvider.notifier).startSharing();
                   } else {
-                    location.stopSharing();
+                    ref.read(locationProvider.notifier).stopSharing();
                   }
                 },
               ),
@@ -150,7 +145,7 @@ class ProfileTab extends StatelessWidget {
                 endIndent: 16,
               ),
               Builder(builder: (context) {
-                final ghost = context.watch<GhostProvider>();
+                final ghost = ref.watch(ghostProvider);
                 return Column(children: [
               _toggleRow(
                 context,
@@ -198,7 +193,7 @@ class ProfileTab extends StatelessWidget {
                 badgeColor: PointColors.online,
               ),
               _divider(context),
-              _actionRow(context, '\u{1F517}', 'Generate Invite', onTap: () => _generateInvite(context)),
+              _actionRow(context, '\u{1F517}', 'Generate Invite', onTap: () => _generateInvite(context, ref)),
             ],
           ),
         ),
@@ -213,22 +208,22 @@ class ProfileTab extends StatelessWidget {
           ),
           child: Builder(
             builder: (context) {
-              final themeNotifier = context.watch<ThemeNotifier>();
-              final modeLabel = themeNotifier.mode == ThemeMode.dark
+              final themeState = ref.watch(themeProvider);
+              final modeLabel = themeState.mode == ThemeMode.dark
                   ? 'Dark'
-                  : themeNotifier.mode == ThemeMode.light
+                  : themeState.mode == ThemeMode.light
                   ? 'Light'
                   : 'System';
               return Column(
                 children: [
                   GestureDetector(
                     onTap: () {
-                      final next = themeNotifier.mode == ThemeMode.system
+                      final next = themeState.mode == ThemeMode.system
                           ? ThemeMode.light
-                          : themeNotifier.mode == ThemeMode.light
+                          : themeState.mode == ThemeMode.light
                           ? ThemeMode.dark
                           : ThemeMode.system;
-                      themeNotifier.setMode(next);
+                      ref.read(themeProvider.notifier).setMode(next);
                     },
                     behavior: HitTestBehavior.opaque,
                     child: _settingRow(context, '\u{1F319}', 'Dark Mode', modeLabel),
@@ -237,7 +232,7 @@ class ProfileTab extends StatelessWidget {
                   _settingRow(context, '\u{1F514}', 'Notifications', ''),
                   _divider(context),
                   GestureDetector(
-                    onTap: () => _showChangePasswordSheet(context),
+                    onTap: () => _showChangePasswordSheet(context, ref),
                     behavior: HitTestBehavior.opaque,
                     child: _settingRow(context, '\u{1F511}', 'Change Password', ''),
                   ),
@@ -271,7 +266,7 @@ class ProfileTab extends StatelessWidget {
               ),
             );
             if (confirm == true && context.mounted) {
-              context.read<AuthProvider>().logout();
+              ref.read(authProvider.notifier).logout();
             }
           },
           child: Container(
@@ -296,7 +291,7 @@ class ProfileTab extends StatelessWidget {
 
         // Delete account
         GestureDetector(
-          onTap: () => _showDeleteAccountDialog(context),
+          onTap: () => _showDeleteAccountDialog(context, ref),
           child: Container(
             margin: const EdgeInsets.fromLTRB(14, 10, 14, 30),
             padding: const EdgeInsets.all(14),
@@ -565,7 +560,7 @@ class ProfileTab extends StatelessWidget {
   Widget _divider(BuildContext context) =>
       Divider(height: 1, color: context.dividerClr, indent: 16, endIndent: 16);
 
-  void _showChangePasswordSheet(BuildContext context) {
+  void _showChangePasswordSheet(BuildContext context, WidgetRef ref) {
     final currentCtrl = TextEditingController();
     final newCtrl = TextEditingController();
     final confirmCtrl = TextEditingController();
@@ -644,7 +639,7 @@ class ProfileTab extends StatelessWidget {
                   return;
                 }
                 try {
-                  await context.read<ApiService>().changePassword(
+                  await ref.read(apiServiceProvider).changePassword(
                     currentCtrl.text,
                     newCtrl.text,
                   );
@@ -673,7 +668,7 @@ class ProfileTab extends StatelessWidget {
     );
   }
 
-  void _showDeleteAccountDialog(BuildContext context) {
+  void _showDeleteAccountDialog(BuildContext context, WidgetRef ref) {
     final passwordCtrl = TextEditingController();
 
     showDialog(
@@ -706,11 +701,11 @@ class ProfileTab extends StatelessWidget {
             onPressed: () async {
               if (passwordCtrl.text.isEmpty) return;
               try {
-                await context.read<ApiService>().deleteAccount(
+                await ref.read(apiServiceProvider).deleteAccount(
                   passwordCtrl.text,
                 );
                 if (ctx.mounted) Navigator.pop(ctx);
-                if (context.mounted) context.read<AuthProvider>().logout();
+                if (context.mounted) ref.read(authProvider.notifier).logout();
               } catch (e) {
                 if (ctx.mounted) {
                   ScaffoldMessenger.of(
@@ -732,9 +727,9 @@ class ProfileTab extends StatelessWidget {
     );
   }
 
-  void _generateInvite(BuildContext context) async {
+  void _generateInvite(BuildContext context, WidgetRef ref) async {
     try {
-      final result = await context.read<ApiService>().createInvite(maxUses: 10);
+      final result = await ref.read(apiServiceProvider).createInvite(maxUses: 10);
       final code = result['code'];
       if (context.mounted) {
         showDialog(

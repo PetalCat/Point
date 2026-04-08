@@ -1,17 +1,15 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../theme.dart';
-import '../providers/group_provider.dart';
-import '../providers/location_provider.dart';
-import '../providers/item_provider.dart';
+import '../providers.dart';
 import 'filter_bar.dart';
 import 'person_row.dart';
 import 'item_row.dart';
 import '../screens/group_detail_screen.dart';
 import 'ghost_bottom_sheet.dart';
 
-class PeopleDrawer extends StatelessWidget {
+class PeopleDrawer extends ConsumerWidget {
   final ScrollController? scrollController;
   final FilterMode filterMode;
   final Function(String userId)? onPersonTap;
@@ -24,19 +22,19 @@ class PeopleDrawer extends StatelessWidget {
   });
 
   @override
-  Widget build(BuildContext context) {
-    final locationProvider = context.watch<LocationProvider>();
-    final itemProvider = context.watch<ItemProvider>();
-    final groupProvider = context.watch<GroupProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final locationState = ref.watch(locationProvider);
+    final itemState = ref.watch(itemProvider);
+    final groupState = ref.watch(groupProvider);
 
-    final people = locationProvider.people.values.toList();
+    final people = locationState.people.values.toList();
     people.sort((a, b) {
       if (a.online != b.online) return a.online ? -1 : 1;
       return b.timestamp.compareTo(a.timestamp);
     });
 
-    final items = itemProvider.items;
-    final groups = groupProvider.groups;
+    final items = itemState.items;
+    final groups = groupState.groups;
 
     final showPeople =
         filterMode == FilterMode.all || filterMode == FilterMode.people;
@@ -125,7 +123,7 @@ class PeopleDrawer extends StatelessWidget {
                       ),
                     ),
                     const Spacer(),
-                    _SharingToggle(locationProvider: locationProvider),
+                    _SharingToggle(locationState: locationState),
                   ],
                 ),
               ),
@@ -253,7 +251,7 @@ class _GroupRow extends StatelessWidget {
             ),
             const SizedBox(width: 4),
             const Text(
-              '›',
+              '\u203A',
               style: TextStyle(color: PointColors.textTertiary, fontSize: 16),
             ),
           ],
@@ -264,13 +262,13 @@ class _GroupRow extends StatelessWidget {
 }
 
 class _SharingToggle extends StatelessWidget {
-  final LocationProvider locationProvider;
+  final dynamic locationState;
 
-  const _SharingToggle({required this.locationProvider});
+  const _SharingToggle({required this.locationState});
 
   @override
   Widget build(BuildContext context) {
-    final ghost = locationProvider.isGhostMode;
+    final ghost = locationState.isGhostMode;
 
     return GestureDetector(
       onTap: () => GhostBottomSheet.show(context),

@@ -1,46 +1,80 @@
-import 'package:flutter/foundation.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
+import '../providers.dart';
 import '../services/api_service.dart';
-import '../services/auth_service.dart';
 
-class AuthProvider extends ChangeNotifier {
-  final ApiService _apiService;
-  final AuthService _authService;
+class AuthState {
+  final bool isLoggedIn;
+  final bool isLoading;
+  final String? userId;
+  final String? displayName;
+  final bool isAdmin;
+  final String? token;
+  final String? error;
 
-  bool _isLoggedIn = false;
-  bool _isLoading = true;
-  String? _userId;
-  String? _displayName;
-  bool _isAdmin = false;
-  String? _token;
-  String? _error;
+  const AuthState({
+    this.isLoggedIn = false,
+    this.isLoading = true,
+    this.userId,
+    this.displayName,
+    this.isAdmin = false,
+    this.token,
+    this.error,
+  });
 
-  bool get isLoggedIn => _isLoggedIn;
-  bool get isLoading => _isLoading;
-  String? get userId => _userId;
-  String? get displayName => _displayName;
-  bool get isAdmin => _isAdmin;
-  String? get token => _token;
-  String? get error => _error;
+  AuthState copyWith({
+    bool? isLoggedIn,
+    bool? isLoading,
+    String? userId,
+    String? displayName,
+    bool? isAdmin,
+    String? token,
+    String? error,
+    bool clearError = false,
+    bool clearToken = false,
+    bool clearUserId = false,
+    bool clearDisplayName = false,
+  }) {
+    return AuthState(
+      isLoggedIn: isLoggedIn ?? this.isLoggedIn,
+      isLoading: isLoading ?? this.isLoading,
+      userId: clearUserId ? null : (userId ?? this.userId),
+      displayName: clearDisplayName ? null : (displayName ?? this.displayName),
+      isAdmin: isAdmin ?? this.isAdmin,
+      token: clearToken ? null : (token ?? this.token),
+      error: clearError ? null : (error ?? this.error),
+    );
+  }
+}
 
-  AuthProvider(this._apiService, this._authService) {
+class AuthNotifier extends Notifier<AuthState> {
+  @override
+  AuthState build() {
     _init();
+    return const AuthState();
   }
 
   Future<void> _init() async {
+    final apiService = ref.read(apiServiceProvider);
+    final authService = ref.read(authServiceProvider);
     try {
-      final token = await _authService.getToken();
+      final token = await authService.getToken();
       if (token != null) {
-        _token = token;
-        _userId = await _authService.getUserId();
-        _displayName = await _authService.getDisplayName();
-        _isLoggedIn = true;
-        _apiService.setToken(token);
+        final userId = await authService.getUserId();
+        final displayName = await authService.getDisplayName();
+        apiService.setToken(token);
+        state = state.copyWith(
+          token: token,
+          userId: userId,
+          displayName: displayName,
+          isLoggedIn: true,
+          isLoading: false,
+        );
+        return;
       }
     } catch (_) {
       // If restoring session fails, stay logged out
     }
-    _isLoading = false;
-    notifyListeners();
+    state = state.copyWith(isLoading: false);
   }
 
   Future<bool> register(
@@ -49,78 +83,78 @@ class AuthProvider extends ChangeNotifier {
     String password, {
     String? inviteCode,
   }) async {
-    _error = null;
-    notifyListeners();
+    final apiService = ref.read(apiServiceProvider);
+    final authService = ref.read(authServiceProvider);
+    state = state.copyWith(clearError: true);
     try {
-      final response = await _apiService.register(
+      final response = await apiService.register(
         username,
         displayName,
         password,
         inviteCode: inviteCode,
       );
-      await _authService.saveAuth(
+      await authService.saveAuth(
         response.token,
         response.userId,
         response.displayName,
         response.isAdmin,
       );
-      _token = response.token;
-      _userId = response.userId;
-      _displayName = response.displayName;
-      _isAdmin = response.isAdmin;
-      _isLoggedIn = true;
-      _apiService.setToken(response.token);
-      notifyListeners();
+      apiService.setToken(response.token);
+      state = state.copyWith(
+        token: response.token,
+        userId: response.userId,
+        displayName: response.displayName,
+        isAdmin: response.isAdmin,
+        isLoggedIn: true,
+        clearError: true,
+      );
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
-      notifyListeners();
+      state = state.copyWith(error: e.message);
       return false;
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return false;
     }
   }
 
   Future<bool> login(String username, String password) async {
-    _error = null;
-    notifyListeners();
+    final apiService = ref.read(apiServiceProvider);
+    final authService = ref.read(authServiceProvider);
+    state = state.copyWith(clearError: true);
     try {
-      final response = await _apiService.login(username, password);
-      await _authService.saveAuth(
+      final response = await apiService.login(username, password);
+      await authService.saveAuth(
         response.token,
         response.userId,
         response.displayName,
         response.isAdmin,
       );
-      _token = response.token;
-      _userId = response.userId;
-      _displayName = response.displayName;
-      _isAdmin = response.isAdmin;
-      _isLoggedIn = true;
-      _apiService.setToken(response.token);
-      notifyListeners();
+      apiService.setToken(response.token);
+      state = state.copyWith(
+        token: response.token,
+        userId: response.userId,
+        displayName: response.displayName,
+        isAdmin: response.isAdmin,
+        isLoggedIn: true,
+        clearError: true,
+      );
       return true;
     } on ApiException catch (e) {
-      _error = e.message;
-      notifyListeners();
+      state = state.copyWith(error: e.message);
       return false;
     } catch (e) {
-      _error = e.toString();
-      notifyListeners();
+      state = state.copyWith(error: e.toString());
       return false;
     }
   }
 
   Future<void> logout() async {
-    await _authService.logout();
-    _token = null;
-    _userId = null;
-    _displayName = null;
-    _isAdmin = false;
-    _isLoggedIn = false;
-    _error = null;
-    notifyListeners();
+    final authService = ref.read(authServiceProvider);
+    await authService.logout();
+    state = const AuthState(
+      isLoggedIn: false,
+      isLoading: false,
+    );
   }
 }

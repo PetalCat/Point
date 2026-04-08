@@ -3,14 +3,13 @@ import 'dart:convert';
 import 'dart:ui' as ui;
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../providers/auth_provider.dart';
-import '../providers/location_provider.dart';
+import '../providers.dart';
 import '../services/location_service.dart';
 import '../theme.dart';
 
-class MapView extends StatefulWidget {
+class MapView extends ConsumerStatefulWidget {
   final Function(String userId)? onPersonTap;
   final bool showTrails;
   final Function(LatLng)? onLongPress;
@@ -22,10 +21,10 @@ class MapView extends StatefulWidget {
     this.onLongPress,
   });
   @override
-  State<MapView> createState() => MapViewState();
+  ConsumerState<MapView> createState() => MapViewState();
 }
 
-class MapViewState extends State<MapView> {
+class MapViewState extends ConsumerState<MapView> {
   GoogleMapController? _controller;
   bool _initialFitDone = false;
   final Map<String, BitmapDescriptor> _iconCache = {};
@@ -35,22 +34,22 @@ class MapViewState extends State<MapView> {
   String? _followingUserId;
 
   void followUser(String? userId) {
-    final location = context.read<LocationProvider>();
+    final locationNotifier = ref.read(locationProvider.notifier);
     // Stop viewing previous person
     if (_followingUserId != null && _followingUserId != userId) {
-      location.stopViewing();
+      locationNotifier.stopViewing();
     }
     setState(() => _followingUserId = userId);
     if (userId != null) {
-      location.setTrackingMode(TrackingMode.realtime);
-      location.startViewing(userId); // nudge for fresh location
+      locationNotifier.setTrackingMode(TrackingMode.realtime);
+      locationNotifier.startViewing(userId); // nudge for fresh location
       final target = _targetPositions[userId];
       if (target != null && _controller != null) {
         _controller!.animateCamera(CameraUpdate.newLatLngZoom(target, 15));
       }
     } else {
-      location.setTrackingMode(TrackingMode.adaptive);
-      location.stopViewing();
+      locationNotifier.setTrackingMode(TrackingMode.adaptive);
+      locationNotifier.stopViewing();
     }
   }
 
@@ -97,9 +96,9 @@ class MapViewState extends State<MapView> {
 
   /// Call this from outside to fit all markers
   void fitAllMarkers() {
-    final locationProvider = context.read<LocationProvider>();
-    final people = locationProvider.people;
-    final myPos = locationProvider.myPosition;
+    final locationState = ref.read(locationProvider);
+    final people = locationState.people;
+    final myPos = locationState.myPosition;
 
     final allPoints = <LatLng>[];
     if (myPos != null) allPoints.add(LatLng(myPos.latitude, myPos.longitude));
@@ -120,10 +119,10 @@ class MapViewState extends State<MapView> {
 
   @override
   Widget build(BuildContext context) {
-    final locationProvider = context.watch<LocationProvider>();
-    final auth = context.watch<AuthProvider>();
-    final people = locationProvider.people;
-    final myPos = locationProvider.myPosition;
+    final locationState = ref.watch(locationProvider);
+    final auth = ref.watch(authProvider);
+    final people = locationState.people;
+    final myPos = locationState.myPosition;
 
     final markers = <Marker>{};
     final allPoints = <LatLng>[];
@@ -276,7 +275,7 @@ class MapViewState extends State<MapView> {
     // Build trail polylines with smooth curves (only if enabled)
     final polylines = <Polyline>{};
     if (widget.showTrails) {
-      for (final entry in locationProvider.trails.entries) {
+      for (final entry in locationState.trails.entries) {
         final trail = entry.value;
         if (trail.length < 2) continue;
         final color = _colorForUser(entry.key);
@@ -324,7 +323,7 @@ class MapViewState extends State<MapView> {
     final polygons = <Polygon>{};
 
     // Draw saved places
-    for (final place in locationProvider.places) {
+    for (final place in locationState.places) {
       final placeId = place['id'] as String? ?? '';
       final geometryType = place['geometry_type'] as String? ?? 'circle';
       if (geometryType == 'polygon') {

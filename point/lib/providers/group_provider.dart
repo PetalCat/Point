@@ -1,56 +1,64 @@
 import 'package:flutter/foundation.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../models/group.dart';
-import '../services/api_service.dart';
-import '../services/crypto_service.dart';
+import '../providers.dart';
 
-class GroupProvider extends ChangeNotifier {
-  final ApiService _api;
-  CryptoService? _crypto;
-  List<Group> _groups = [];
-  String? _selectedGroupId;
+class GroupState {
+  final List<Group> groups;
+  final String? selectedGroupId;
 
-  List<Group> get groups => _groups;
-  String? get selectedGroupId => _selectedGroupId;
+  const GroupState({
+    this.groups = const [],
+    this.selectedGroupId,
+  });
+
+  GroupState copyWith({
+    List<Group>? groups,
+    String? selectedGroupId,
+    bool clearSelectedGroupId = false,
+  }) {
+    return GroupState(
+      groups: groups ?? this.groups,
+      selectedGroupId: clearSelectedGroupId ? null : (selectedGroupId ?? this.selectedGroupId),
+    );
+  }
+
   Group? get selectedGroup =>
-      _groups.where((g) => g.id == _selectedGroupId).firstOrNull;
+      groups.where((g) => g.id == selectedGroupId).firstOrNull;
+}
 
-  GroupProvider(this._api);
-
-  void setCryptoService(CryptoService crypto) {
-    _crypto = crypto;
+class GroupNotifier extends Notifier<GroupState> {
+  @override
+  GroupState build() {
+    return const GroupState();
   }
 
   Future<void> loadGroups() async {
+    final api = ref.read(apiServiceProvider);
     try {
-      _groups = await _api.listGroups();
-      if (_selectedGroupId == null && _groups.isNotEmpty) {
-        _selectedGroupId = _groups.first.id;
+      final groups = await api.listGroups();
+      var selectedId = state.selectedGroupId;
+      if (selectedId == null && groups.isNotEmpty) {
+        selectedId = groups.first.id;
       }
+      state = state.copyWith(groups: groups, selectedGroupId: selectedId);
     } catch (e) {
-      debugPrint('GroupProvider error: $e');
+      debugPrint('GroupNotifier error: $e');
     }
-    notifyListeners();
   }
 
-  /// Set up MLS encryption for all loaded groups.
-  /// For groups we created (admin), create the MLS group if not already set up.
-  /// For groups we joined, we should have received a Welcome already.
   Future<void> setupEncryptionForAllGroups(String myUserId) async {
-    if (_crypto == null || !_crypto!.isInitialized) return;
-    for (final group in _groups) {
-      if (_crypto!.hasGroup(group.id)) continue;
-
-      // Check if we're the admin (creator) — if so, create the MLS group
-      // and add existing members
+    final crypto = ref.read(cryptoServiceProvider);
+    if (!crypto.isInitialized) return;
+    for (final group in state.groups) {
+      if (crypto.hasGroup(group.id)) continue;
       try {
-        // Try to create the MLS group — if we're not the first member,
-        // we should receive a Welcome instead (which processPendingMessages handles)
         if (group.ownerId == myUserId) {
           final memberIds = group.members
               .where((m) => m.userId != myUserId)
               .map((m) => m.userId)
               .toList();
-          await _crypto!.setupNewGroup(group.id, memberIds);
+          await crypto.setupNewGroup(group.id, memberIds);
         }
       } catch (e) {
         debugPrint('[Groups] MLS setup failed for ${group.id}: $e');
@@ -59,20 +67,23 @@ class GroupProvider extends ChangeNotifier {
   }
 
   void selectGroup(String? id) {
-    _selectedGroupId = id;
-    notifyListeners();
+    if (id == null) {
+      state = state.copyWith(clearSelectedGroupId: true);
+    } else {
+      state = state.copyWith(selectedGroupId: id);
+    }
   }
 
   Future<Group?> createGroup(String name) async {
+    final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
     try {
-      final group = await _api.createGroup(name);
-      _groups.add(group);
-      notifyListeners();
+      final group = await api.createGroup(name);
+      state = state.copyWith(groups: [...state.groups, group]);
 
-      // Create MLS group — we're the only member initially
-      if (_crypto != null && _crypto!.isInitialized) {
+      if (crypto.isInitialized) {
         try {
-          await _crypto!.createGroup(group.id);
+          await crypto.createGroup(group.id);
         } catch (e) {
           debugPrint('[Groups] MLS group creation failed: $e');
         }
@@ -84,15 +95,15 @@ class GroupProvider extends ChangeNotifier {
     }
   }
 
-  /// Add a member to a group and set up MLS key exchange.
   Future<bool> addMember(String groupId, String userId, {String? role}) async {
+    final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
     try {
-      await _api.addMember(groupId, userId, role: role);
+      await api.addMember(groupId, userId, role: role);
 
-      // MLS key exchange — fetch their key package, add to group, send Welcome
-      if (_crypto != null && _crypto!.hasGroup(groupId)) {
+      if (crypto.hasGroup(groupId)) {
         try {
-          await _crypto!.addMemberToGroup(groupId, userId);
+          await crypto.addMemberToGroup(groupId, userId);
         } catch (e) {
           debugPrint('[Groups] MLS add member failed: $e');
         }

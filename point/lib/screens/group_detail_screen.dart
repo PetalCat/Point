@@ -1,28 +1,25 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../models/ghost_rule.dart';
 import '../models/group.dart';
-import '../providers/auth_provider.dart';
-import '../providers/ghost_provider.dart';
-import '../providers/group_provider.dart';
+import '../providers.dart';
 import '../screens/ghost_rules_screen.dart';
-import '../services/api_service.dart';
 import '../theme.dart';
 
-class GroupDetailScreen extends StatefulWidget {
+class GroupDetailScreen extends ConsumerStatefulWidget {
   final String groupId;
 
   const GroupDetailScreen({super.key, required this.groupId});
 
   @override
-  State<GroupDetailScreen> createState() => _GroupDetailScreenState();
+  ConsumerState<GroupDetailScreen> createState() => _GroupDetailScreenState();
 }
 
-class _GroupDetailScreenState extends State<GroupDetailScreen> {
+class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
   Group? _group;
   String? _myRole;
   GroupMember? _myMembership;
@@ -35,11 +32,11 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   }
 
   Future<void> _loadGroup() async {
-    final groups = context.read<GroupProvider>();
+    final groups = ref.read(groupProvider.notifier);
     await groups.loadGroups();
-    final auth = context.read<AuthProvider>();
+    final auth = ref.read(authProvider);
 
-    final g = groups.groups.where((g) => g.id == widget.groupId).firstOrNull;
+    final g = ref.read(groupProvider).groups.where((g) => g.id == widget.groupId).firstOrNull;
     if (g != null && mounted) {
       setState(() {
         _group = g;
@@ -55,7 +52,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   }
 
   bool get _isAdmin => _myRole == 'admin';
-  bool get _isOwner => _group?.ownerId == context.read<AuthProvider>().userId;
+  bool get _isOwner => _group?.ownerId == ref.read(authProvider).userId;
 
   @override
   Widget build(BuildContext context) {
@@ -70,7 +67,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     }
 
     final group = _group!;
-    final auth = context.watch<AuthProvider>();
+    final auth = ref.watch(authProvider);
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -427,7 +424,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
   }
 
   Widget _buildGhostSection() {
-    final ghost = context.watch<GhostProvider>();
+    final ghost = ref.watch(ghostProvider);
     final groupId = widget.groupId;
     final isGhosted = ghost.isGhostedForGroup(groupId);
     final rulesForGroup = ghost.rulesForGroup(groupId);
@@ -490,7 +487,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                   ),
                 )
               else
-                ...rulesForGroup.map((rule) => _ghostRuleRow(rule, ghost)),
+                ...rulesForGroup.map((rule) => _ghostRuleRow(rule)),
 
               const SizedBox(height: 8),
               SizedBox(
@@ -518,7 +515,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     );
   }
 
-  Widget _ghostRuleRow(GhostRule rule, GhostProvider ghost) {
+  Widget _ghostRuleRow(GhostRule rule) {
     final isActive = rule.isActiveNow();
     final color = _ghostRuleColor(rule.type);
 
@@ -560,7 +557,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           Switch.adaptive(
             value: rule.enabled,
             activeColor: color,
-            onChanged: (_) => ghost.toggleRule(rule.id),
+            onChanged: (_) => ref.read(ghostProvider.notifier).toggleRule(rule.id),
           ),
         ],
       ),
@@ -608,7 +605,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     String? scheduleType,
   }) async {
     try {
-      await context.read<ApiService>().updateMyGroupSettings(
+      await ref.read(apiServiceProvider).updateMyGroupSettings(
         widget.groupId,
         precision: precision,
         sharing: sharing,
@@ -645,7 +642,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
         );
         if (result != null && result.isNotEmpty) {
-          await context.read<ApiService>().updateGroupSettings(
+          await ref.read(apiServiceProvider).updateGroupSettings(
             widget.groupId,
             name: result,
           );
@@ -679,8 +676,8 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
         );
         if (confirm == true && mounted) {
-          await context.read<ApiService>().deleteGroup(widget.groupId);
-          await context.read<GroupProvider>().loadGroups();
+          await ref.read(apiServiceProvider).deleteGroup(widget.groupId);
+          await ref.read(groupProvider.notifier).loadGroups();
           if (mounted) Navigator.pop(context);
         }
         break;
@@ -721,7 +718,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
                     activeColor: const Color(0xFF3F51FF),
                     onChanged: (v) async {
                       Navigator.pop(ctx);
-                      await context.read<ApiService>().updateGroupSettings(
+                      await ref.read(apiServiceProvider).updateGroupSettings(
                         widget.groupId,
                         membersCanInvite: v,
                       );
@@ -741,7 +738,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
     switch (action) {
       case 'role':
         final newRole = member.role == 'admin' ? 'member' : 'admin';
-        await context.read<ApiService>().updateMemberRole(
+        await ref.read(apiServiceProvider).updateMemberRole(
           widget.groupId,
           member.userId,
           newRole,
@@ -769,7 +766,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
           ),
         );
         if (confirm == true) {
-          await context.read<ApiService>().removeMember(
+          await ref.read(apiServiceProvider).removeMember(
             widget.groupId,
             member.userId,
           );
@@ -781,7 +778,7 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
 
   void _showInviteSheet() async {
     try {
-      final result = await context.read<ApiService>().createGroupInvite(
+      final result = await ref.read(apiServiceProvider).createGroupInvite(
         widget.groupId,
       );
       final code = result['code'] as String;
@@ -897,12 +894,12 @@ class _GroupDetailScreenState extends State<GroupDetailScreen> {
       ),
     );
     if (confirm == true && mounted) {
-      final auth = context.read<AuthProvider>();
-      await context.read<ApiService>().removeMember(
+      final auth = ref.read(authProvider);
+      await ref.read(apiServiceProvider).removeMember(
         widget.groupId,
         auth.userId!,
       );
-      await context.read<GroupProvider>().loadGroups();
+      await ref.read(groupProvider.notifier).loadGroups();
       if (mounted) Navigator.pop(context);
     }
   }

@@ -1,13 +1,13 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../providers/location_provider.dart';
+import '../providers.dart';
 import '../theme.dart';
 import '../utils.dart' as utils;
 
-class PersonDetailSheet extends StatefulWidget {
+class PersonDetailSheet extends ConsumerStatefulWidget {
   final String userId;
   final PersonLocation person; // initial snapshot — live data from Provider
   final ScrollController scrollController;
@@ -24,13 +24,13 @@ class PersonDetailSheet extends StatefulWidget {
   });
 
   @override
-  State<PersonDetailSheet> createState() => _PersonDetailSheetState();
+  ConsumerState<PersonDetailSheet> createState() => _PersonDetailSheetState();
 }
 
-class _PersonDetailSheetState extends State<PersonDetailSheet> {
-  /// Get live person data from Provider, fall back to widget snapshot.
+class _PersonDetailSheetState extends ConsumerState<PersonDetailSheet> {
+  /// Get live person data from provider, fall back to widget snapshot.
   PersonLocation get _person {
-    final live = context.watch<LocationProvider>().people[widget.userId];
+    final live = ref.watch(locationProvider).people[widget.userId];
     return live ?? widget.person;
   }
 

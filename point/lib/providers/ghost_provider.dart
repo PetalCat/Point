@@ -2,16 +2,18 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:workmanager/workmanager.dart';
 
 import '../models/ghost_rule.dart';
+import '../providers.dart';
 import '../services/api_service.dart';
 
 const _bgTaskEvaluate = 'ghost_evaluate';
 const _bgTaskTransition = 'ghost_transition';
 
-/// Background callback — must be top-level.
+/// Background callback -- must be top-level.
 @pragma('vm:entry-point')
 void ghostBackgroundCallback() {
   Workmanager().executeTask((task, inputData) async {
@@ -24,7 +26,6 @@ void ghostBackgroundCallback() {
       final rules = list.map((j) => GhostRule.fromJson(j)).toList();
       final anyActive = rules.any((r) => r.enabled && r.isActiveNow());
 
-      // Update the server ghost flag as a safety net
       final token = prefs.getString('auth_token');
       final serverUrl = prefs.getString('server_url');
       if (token != null && serverUrl != null && serverUrl.isNotEmpty) {
@@ -34,7 +35,6 @@ void ghostBackgroundCallback() {
         } catch (_) {}
       }
 
-      // Store current ghost state so the app reads it on resume
       await prefs.setBool('ghost_active_bg', anyActive);
     } catch (e) {
       debugPrint('[Ghost BG] Error: $e');
@@ -43,64 +43,91 @@ void ghostBackgroundCallback() {
   });
 }
 
-class GhostProvider extends ChangeNotifier {
-  List<GhostRule> _rules = [];
-  DateTime? _timerExpiry;
-  Timer? _evaluationTimer;
-  int? _currentBattery;
-  String? _currentPlaceId;
-  ApiService? _api;
+class GhostState {
+  final List<GhostRule> rules;
+  final DateTime? timerExpiry;
+  final bool globalGhost;
+  final Set<String> ghostedGroupIds;
+  final int? currentBattery;
+  final String? currentPlaceId;
 
-  final Set<String> _ghostedGroupIds = {};
-  bool _globalGhost = false;
+  const GhostState({
+    this.rules = const [],
+    this.timerExpiry,
+    this.globalGhost = false,
+    this.ghostedGroupIds = const {},
+    this.currentBattery,
+    this.currentPlaceId,
+  });
 
-  List<GhostRule> get rules => List.unmodifiable(_rules);
-  DateTime? get timerExpiry => _timerExpiry;
-  bool get hasActiveTimer => _timerExpiry != null && _timerExpiry!.isAfter(DateTime.now());
-  bool get isGlobalGhostOn => _globalGhost;
+  bool get hasActiveTimer => timerExpiry != null && timerExpiry!.isAfter(DateTime.now());
+  bool get isGlobalGhostOn => globalGhost;
 
-  GhostProvider() {
-    _load();
-    _evaluationTimer = Timer.periodic(const Duration(minutes: 1), (_) => evaluate());
-  }
-
-  void setApiService(ApiService api) {
-    _api = api;
-  }
-
-  /// Check if ghost is active for a specific group right now.
-  bool isGhostedForGroup(String groupId) {
-    if (_globalGhost) return true;
+  bool get isGhostActive {
+    if (globalGhost) return true;
     if (hasActiveTimer) return true;
-    if (_ghostedGroupIds.contains('__all__')) {
-      // Check exceptions
-      for (final rule in _rules) {
+    return ghostedGroupIds.isNotEmpty;
+  }
+
+  List<GhostRule> get activeRules {
+    return rules.where((r) => r.enabled && r.isActiveNow(
+      currentBattery: currentBattery,
+      currentPlaceId: currentPlaceId,
+    )).toList();
+  }
+
+  bool isGhostedForGroup(String groupId) {
+    if (globalGhost) return true;
+    if (hasActiveTimer) return true;
+    if (ghostedGroupIds.contains('__all__')) {
+      for (final rule in rules) {
         if (!rule.enabled) continue;
-        if (!rule.isActiveNow(currentBattery: _currentBattery, currentPlaceId: _currentPlaceId)) continue;
+        if (!rule.isActiveNow(currentBattery: currentBattery, currentPlaceId: currentPlaceId)) continue;
         if (rule.exceptGroupIds != null && rule.exceptGroupIds!.contains(groupId)) {
           return false;
         }
       }
       return true;
     }
-    return _ghostedGroupIds.contains(groupId);
-  }
-
-  bool get isGhostActive {
-    if (_globalGhost) return true;
-    if (hasActiveTimer) return true;
-    return _ghostedGroupIds.isNotEmpty;
+    return ghostedGroupIds.contains(groupId);
   }
 
   List<GhostRule> rulesForGroup(String groupId) {
-    return _rules.where((r) => r.enabled && r.affectsGroup(groupId)).toList();
+    return rules.where((r) => r.enabled && r.affectsGroup(groupId)).toList();
   }
 
-  List<GhostRule> get activeRules {
-    return _rules.where((r) => r.enabled && r.isActiveNow(
-      currentBattery: _currentBattery,
-      currentPlaceId: _currentPlaceId,
-    )).toList();
+  GhostState copyWith({
+    List<GhostRule>? rules,
+    DateTime? timerExpiry,
+    bool? globalGhost,
+    Set<String>? ghostedGroupIds,
+    int? currentBattery,
+    String? currentPlaceId,
+    bool clearTimerExpiry = false,
+    bool clearCurrentPlaceId = false,
+  }) {
+    return GhostState(
+      rules: rules ?? this.rules,
+      timerExpiry: clearTimerExpiry ? null : (timerExpiry ?? this.timerExpiry),
+      globalGhost: globalGhost ?? this.globalGhost,
+      ghostedGroupIds: ghostedGroupIds ?? this.ghostedGroupIds,
+      currentBattery: currentBattery ?? this.currentBattery,
+      currentPlaceId: clearCurrentPlaceId ? null : (currentPlaceId ?? this.currentPlaceId),
+    );
+  }
+}
+
+class GhostNotifier extends Notifier<GhostState> {
+  Timer? _evaluationTimer;
+
+  @override
+  GhostState build() {
+    _evaluationTimer = Timer.periodic(const Duration(minutes: 1), (_) => evaluate());
+    ref.onDispose(() {
+      _evaluationTimer?.cancel();
+    });
+    _load();
+    return const GhostState();
   }
 
   // ============================================================
@@ -108,32 +135,36 @@ class GhostProvider extends ChangeNotifier {
   // ============================================================
 
   void toggleGlobalGhost() {
-    _globalGhost = !_globalGhost;
-    if (!_globalGhost) _timerExpiry = null;
+    final newGlobal = !state.globalGhost;
+    state = state.copyWith(
+      globalGhost: newGlobal,
+      clearTimerExpiry: !newGlobal ? true : false,
+    );
     _syncServerGhostFlag();
-    notifyListeners();
   }
 
   void setGhostTimer(Duration duration) {
-    _timerExpiry = DateTime.now().add(duration);
+    state = state.copyWith(timerExpiry: DateTime.now().add(duration));
     _syncServerGhostFlag();
     _scheduleTimerExpiry(duration);
-    notifyListeners();
   }
 
   void clearTimer() {
-    _timerExpiry = null;
+    state = state.copyWith(clearTimerExpiry: true);
     _syncServerGhostFlag();
-    notifyListeners();
   }
 
   void updateBattery(int level) {
-    _currentBattery = level;
+    state = state.copyWith(currentBattery: level);
     evaluate();
   }
 
   void updateCurrentPlace(String? placeId) {
-    _currentPlaceId = placeId;
+    if (placeId == null) {
+      state = state.copyWith(clearCurrentPlaceId: true);
+    } else {
+      state = state.copyWith(currentPlaceId: placeId);
+    }
     evaluate();
   }
 
@@ -142,16 +173,18 @@ class GhostProvider extends ChangeNotifier {
   // ============================================================
 
   void addRule(GhostRule rule) {
-    _rules.add(rule);
+    state = state.copyWith(rules: [...state.rules, rule]);
     evaluate();
     _save();
     _scheduleNextTransition();
   }
 
   void updateRule(GhostRule updated) {
-    final idx = _rules.indexWhere((r) => r.id == updated.id);
+    final rules = [...state.rules];
+    final idx = rules.indexWhere((r) => r.id == updated.id);
     if (idx != -1) {
-      _rules[idx] = updated;
+      rules[idx] = updated;
+      state = state.copyWith(rules: rules);
       evaluate();
       _save();
       _scheduleNextTransition();
@@ -159,16 +192,20 @@ class GhostProvider extends ChangeNotifier {
   }
 
   void removeRule(String ruleId) {
-    _rules.removeWhere((r) => r.id == ruleId);
+    state = state.copyWith(
+      rules: state.rules.where((r) => r.id != ruleId).toList(),
+    );
     evaluate();
     _save();
     _scheduleNextTransition();
   }
 
   void toggleRule(String ruleId) {
-    final idx = _rules.indexWhere((r) => r.id == ruleId);
+    final rules = [...state.rules];
+    final idx = rules.indexWhere((r) => r.id == ruleId);
     if (idx != -1) {
-      _rules[idx] = _rules[idx].copyWith(enabled: !_rules[idx].enabled);
+      rules[idx] = rules[idx].copyWith(enabled: !rules[idx].enabled);
+      state = state.copyWith(rules: rules);
       evaluate();
       _save();
       _scheduleNextTransition();
@@ -180,43 +217,47 @@ class GhostProvider extends ChangeNotifier {
   // ============================================================
 
   void evaluate() {
-    final wasPreviouslyActive = isGhostActive;
-    _ghostedGroupIds.clear();
+    final ghostedGroupIds = <String>{};
 
-    for (final rule in _rules) {
+    for (final rule in state.rules) {
       if (!rule.enabled) continue;
       if (!rule.isActiveNow(
-        currentBattery: _currentBattery,
-        currentPlaceId: _currentPlaceId,
+        currentBattery: state.currentBattery,
+        currentPlaceId: state.currentPlaceId,
       )) continue;
 
       if (rule.target == GhostTarget.all) {
-        _ghostedGroupIds.add('__all__');
+        ghostedGroupIds.add('__all__');
       } else if (rule.targetGroupIds != null) {
-        _ghostedGroupIds.addAll(rule.targetGroupIds!);
+        ghostedGroupIds.addAll(rule.targetGroupIds!);
       }
     }
 
-    if (_timerExpiry != null && _timerExpiry!.isBefore(DateTime.now())) {
-      _timerExpiry = null;
+    DateTime? timerExpiry = state.timerExpiry;
+    if (timerExpiry != null && timerExpiry.isBefore(DateTime.now())) {
+      timerExpiry = null;
     }
 
-    // If ghost state changed, update the server safety net
-    if (isGhostActive != wasPreviouslyActive) {
+    final wasPreviouslyActive = state.isGhostActive;
+    state = state.copyWith(
+      ghostedGroupIds: ghostedGroupIds,
+      timerExpiry: timerExpiry,
+      clearTimerExpiry: timerExpiry == null && state.timerExpiry != null,
+    );
+
+    if (state.isGhostActive != wasPreviouslyActive) {
       _syncServerGhostFlag();
     }
-
-    notifyListeners();
   }
 
   // ============================================================
-  // Server safety net — coarse "globally ghosted" flag
+  // Server safety net
   // ============================================================
 
   Future<void> _syncServerGhostFlag() async {
-    if (_api == null) return;
     try {
-      await _api!.setGhostFlag(isGhostActive);
+      final api = ref.read(apiServiceProvider);
+      await api.setGhostFlag(state.isGhostActive);
     } catch (e) {
       debugPrint('[Ghost] Failed to sync server ghost flag: $e');
     }
@@ -226,7 +267,6 @@ class GhostProvider extends ChangeNotifier {
   // Background scheduling
   // ============================================================
 
-  /// Schedule a background task for the next ghost rule transition.
   void _scheduleNextTransition() {
     final nextTransition = _findNextTransitionDelay();
     if (nextTransition == null) return;
@@ -240,7 +280,6 @@ class GhostProvider extends ChangeNotifier {
     debugPrint('[Ghost] Scheduled background transition in ${nextTransition.inMinutes}m');
   }
 
-  /// Schedule background task when a quick timer expires.
   void _scheduleTimerExpiry(Duration duration) {
     Workmanager().registerOneOffTask(
       'ghost_timer_expiry',
@@ -250,14 +289,13 @@ class GhostProvider extends ChangeNotifier {
     );
   }
 
-  /// Find the delay until the next schedule rule activates or deactivates.
   Duration? _findNextTransitionDelay() {
     final now = DateTime.now();
     final nowMinutes = now.hour * 60 + now.minute;
     final weekday = now.weekday - 1;
     Duration? shortest;
 
-    for (final rule in _rules) {
+    for (final rule in state.rules) {
       if (!rule.enabled || rule.type != GhostRuleType.schedule) continue;
       if (rule.days == null || rule.startMinute == null || rule.endMinute == null) continue;
 
@@ -265,19 +303,17 @@ class GhostProvider extends ChangeNotifier {
         int daysAhead = day - weekday;
         if (daysAhead < 0) daysAhead += 7;
 
-        // Check start transition
         int targetMinutes = rule.startMinute!;
         int minutesUntil = (daysAhead * 24 * 60) + (targetMinutes - nowMinutes);
         if (minutesUntil <= 0) minutesUntil += 7 * 24 * 60;
         final startDelay = Duration(minutes: minutesUntil);
         if (shortest == null || startDelay < shortest) shortest = startDelay;
 
-        // Check end transition
         targetMinutes = rule.endMinute!;
         minutesUntil = (daysAhead * 24 * 60) + (targetMinutes - nowMinutes);
         if (minutesUntil <= 0) minutesUntil += 7 * 24 * 60;
         final endDelay = Duration(minutes: minutesUntil);
-        if (endDelay < shortest!) shortest = endDelay;
+        if (endDelay < shortest) shortest = endDelay;
       }
     }
 
@@ -287,7 +323,6 @@ class GhostProvider extends ChangeNotifier {
   /// Initialize WorkManager for background ghost evaluation.
   static Future<void> initBackground() async {
     await Workmanager().initialize(ghostBackgroundCallback);
-    // Periodic fallback — every 15 minutes, evaluate ghost rules
     await Workmanager().registerPeriodicTask(
       _bgTaskEvaluate,
       _bgTaskEvaluate,
@@ -301,7 +336,7 @@ class GhostProvider extends ChangeNotifier {
 
   Future<void> _save() async {
     final prefs = await SharedPreferences.getInstance();
-    final json = _rules.map((r) => r.toJson()).toList();
+    final json = state.rules.map((r) => r.toJson()).toList();
     await prefs.setString('ghost_rules', jsonEncode(json));
   }
 
@@ -311,22 +346,16 @@ class GhostProvider extends ChangeNotifier {
     if (str != null) {
       try {
         final list = jsonDecode(str) as List;
-        _rules = list.map((j) => GhostRule.fromJson(j)).toList();
+        final rules = list.map((j) => GhostRule.fromJson(j)).toList();
+        state = state.copyWith(rules: rules);
         evaluate();
       } catch (e) {
         debugPrint('[Ghost] Failed to load rules: $e');
       }
     }
-    // Check if background worker set ghost state while we were dead
     final bgGhost = prefs.getBool('ghost_active_bg') ?? false;
-    if (bgGhost && !isGhostActive) {
-      evaluate(); // re-evaluate with fresh time
+    if (bgGhost && !state.isGhostActive) {
+      evaluate();
     }
-  }
-
-  @override
-  void dispose() {
-    _evaluationTimer?.cancel();
-    super.dispose();
   }
 }

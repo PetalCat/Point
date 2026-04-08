@@ -1,0 +1,3 @@
+[workspace]
+members = ["point-core", "point-server", "point/rust"]
+resolver = "2"

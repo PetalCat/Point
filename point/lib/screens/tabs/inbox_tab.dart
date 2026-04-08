@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../theme.dart';
-import '../../providers/location_provider.dart';
-import '../../providers/sharing_provider.dart';
+import '../../providers.dart';
 
-class InboxTab extends StatelessWidget {
+class InboxTab extends ConsumerWidget {
   const InboxTab({super.key, required this.recentGeofenceEvents});
 
   final List<Map<String, dynamic>> recentGeofenceEvents;
 
-  int itemCount(BuildContext context) {
-    final sharing = context.read<SharingProvider>();
-    final location = context.read<LocationProvider>();
+  int itemCount(WidgetRef ref) {
+    final sharing = ref.read(sharingProvider);
+    final location = ref.read(locationProvider);
     int count = sharing.incomingRequests.length + recentGeofenceEvents.length;
     for (final person in location.people.values) {
       if (person.battery != null && person.battery! < 20 && person.online) {
@@ -23,9 +22,9 @@ class InboxTab extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final sharing = context.watch<SharingProvider>();
-    final location = context.watch<LocationProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final sharing = ref.watch(sharingProvider);
+    final location = ref.watch(locationProvider);
 
     final items = <Widget>[];
 
@@ -45,13 +44,13 @@ class InboxTab extends StatelessWidget {
               context,
               'Accept',
               PointColors.accent,
-              () => sharing.acceptRequest(req['id'] as String? ?? ''),
+              () => ref.read(sharingProvider.notifier).acceptRequest(req['id'] as String? ?? ''),
             ),
             _inboxAction(
               context,
               'Decline',
               PointColors.textSecondary,
-              () => sharing.rejectRequest(req['id'] as String? ?? ''),
+              () => ref.read(sharingProvider.notifier).rejectRequest(req['id'] as String? ?? ''),
             ),
           ],
         ),
@@ -95,7 +94,7 @@ class InboxTab extends StatelessWidget {
 
     return RefreshIndicator(
       color: PointColors.accent,
-      onRefresh: () => sharing.loadAll(),
+      onRefresh: () => ref.read(sharingProvider.notifier).loadAll(),
       child: ListView(
         padding: const EdgeInsets.symmetric(horizontal: 14),
         children: [

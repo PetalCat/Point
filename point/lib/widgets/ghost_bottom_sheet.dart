@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../models/ghost_rule.dart';
-import '../providers/ghost_provider.dart';
+import '../providers.dart';
 import '../screens/ghost_rules_screen.dart';
 import '../theme.dart';
 
-class GhostBottomSheet extends StatelessWidget {
+class GhostBottomSheet extends ConsumerWidget {
   const GhostBottomSheet({super.key});
 
   static void show(BuildContext context) {
@@ -19,8 +19,8 @@ class GhostBottomSheet extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final ghost = context.watch<GhostProvider>();
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ghost = ref.watch(ghostProvider);
     final isActive = ghost.isGhostActive;
 
     return Container(
@@ -46,7 +46,7 @@ class GhostBottomSheet extends StatelessWidget {
           // Header with toggle
           Row(
             children: [
-              Text('👻', style: const TextStyle(fontSize: 28)),
+              Text('\u{1F47B}', style: const TextStyle(fontSize: 28)),
               const SizedBox(width: 10),
               Expanded(
                 child: Column(
@@ -64,7 +64,7 @@ class GhostBottomSheet extends StatelessWidget {
               ),
               Switch(
                 value: ghost.isGlobalGhostOn,
-                onChanged: (_) => ghost.toggleGlobalGhost(),
+                onChanged: (_) => ref.read(ghostProvider.notifier).toggleGlobalGhost(),
                 activeColor: PointColors.accent,
               ),
             ],
@@ -82,24 +82,24 @@ class GhostBottomSheet extends StatelessWidget {
           const SizedBox(height: 8),
           Row(
             children: [
-              _timerChip(context, ghost, '1h', const Duration(hours: 1)),
+              _timerChip(context, ref, ghost, '1h', const Duration(hours: 1)),
               const SizedBox(width: 6),
-              _timerChip(context, ghost, '4h', const Duration(hours: 4)),
+              _timerChip(context, ref, ghost, '4h', const Duration(hours: 4)),
               const SizedBox(width: 6),
-              _timerChip(context, ghost, '🌙', const Duration(hours: 8), label: 'Tonight'),
+              _timerChip(context, ref, ghost, '\u{1F319}', const Duration(hours: 8), label: 'Tonight'),
               const SizedBox(width: 6),
-              _timerChip(context, ghost, '📅', const Duration(hours: 24), label: 'Tomorrow'),
+              _timerChip(context, ref, ghost, '\u{1F4C5}', const Duration(hours: 24), label: 'Tomorrow'),
             ],
           ),
           const SizedBox(height: 6),
           Row(
             children: [
-              _timerChip(context, ghost, '∞', Duration.zero, label: 'Indefinite', indefinite: true),
+              _timerChip(context, ref, ghost, '\u221E', Duration.zero, label: 'Indefinite', indefinite: true),
               const SizedBox(width: 6),
               if (ghost.hasActiveTimer)
                 Expanded(
                   child: GestureDetector(
-                    onTap: () => ghost.clearTimer(),
+                    onTap: () => ref.read(ghostProvider.notifier).clearTimer(),
                     child: Container(
                       padding: const EdgeInsets.symmetric(vertical: 12),
                       decoration: BoxDecoration(
@@ -198,17 +198,15 @@ class GhostBottomSheet extends StatelessWidget {
     );
   }
 
-  Widget _timerChip(BuildContext context, GhostProvider ghost, String display,
+  Widget _timerChip(BuildContext context, WidgetRef ref, GhostState ghost, String display,
       Duration duration, {String? label, bool indefinite = false}) {
-    final isTimerActive = ghost.hasActiveTimer;
-
     return Expanded(
       child: GestureDetector(
         onTap: () {
           if (indefinite) {
-            if (!ghost.isGlobalGhostOn) ghost.toggleGlobalGhost();
+            if (!ghost.isGlobalGhostOn) ref.read(ghostProvider.notifier).toggleGlobalGhost();
           } else {
-            ghost.setGhostTimer(duration);
+            ref.read(ghostProvider.notifier).setGhostTimer(duration);
           }
         },
         child: Container(

@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../config.dart';
-import '../providers/auth_provider.dart';
+import '../providers.dart';
 import '../theme.dart';
 import 'register_screen.dart';
 
-class LoginScreen extends StatefulWidget {
+class LoginScreen extends ConsumerStatefulWidget {
   const LoginScreen({super.key});
 
   @override
-  State<LoginScreen> createState() => _LoginScreenState();
+  ConsumerState<LoginScreen> createState() => _LoginScreenState();
 }
 
-class _LoginScreenState extends State<LoginScreen> {
+class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
@@ -43,7 +43,6 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _submit() async {
     if (_submitting) return;
 
-    // Save server URL first
     final serverText = _serverUrlController.text.trim();
     if (serverText.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -57,14 +56,13 @@ class _LoginScreenState extends State<LoginScreen> {
     if (!_formKey.currentState!.validate()) return;
 
     setState(() => _submitting = true);
-    final auth = context.read<AuthProvider>();
-    await auth.login(_usernameController.text.trim(), _passwordController.text);
+    await ref.read(authProvider.notifier).login(_usernameController.text.trim(), _passwordController.text);
     if (mounted) setState(() => _submitting = false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final auth = context.watch<AuthProvider>();
+    final auth = ref.watch(authProvider);
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -104,7 +102,6 @@ class _LoginScreenState extends State<LoginScreen> {
                   style: TextStyle(fontSize: 16, color: Color(0xFF999999)),
                 ),
                 const SizedBox(height: 48),
-                // Server URL section
                 if (_editingServer) ...[
                   _buildTextField(
                     controller: _serverUrlController,
@@ -228,7 +225,6 @@ class _LoginScreenState extends State<LoginScreen> {
                 const SizedBox(height: 24),
                 GestureDetector(
                   onTap: () {
-                    // Save server URL before navigating to register
                     final serverText = _serverUrlController.text.trim();
                     if (serverText.isNotEmpty) {
                       AppConfig.setServerUrl(serverText);

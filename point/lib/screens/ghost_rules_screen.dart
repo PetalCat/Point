@@ -1,18 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../models/ghost_rule.dart';
-import '../providers/ghost_provider.dart';
-import '../providers/group_provider.dart';
+import '../providers.dart';
 import '../theme.dart';
 
-class GhostRulesScreen extends StatelessWidget {
+class GhostRulesScreen extends ConsumerWidget {
   const GhostRulesScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
-    final ghost = context.watch<GhostProvider>();
-    final groups = context.watch<GroupProvider>().groups;
+  Widget build(BuildContext context, WidgetRef ref) {
+    final ghost = ref.watch(ghostProvider);
+    final groups = ref.watch(groupProvider).groups;
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -21,7 +20,7 @@ class GhostRulesScreen extends StatelessWidget {
         surfaceTintColor: Colors.transparent,
         title: Row(
           children: [
-            const Text('👻 ', style: TextStyle(fontSize: 20)),
+            const Text('\u{1F47B} ', style: TextStyle(fontSize: 20)),
             Text('Ghost Rules',
                 style: TextStyle(
                     fontWeight: FontWeight.w800, color: context.primaryText)),
@@ -38,19 +37,19 @@ class GhostRulesScreen extends StatelessWidget {
           // Weekly schedule section
           _sectionHeader(context, 'Schedules', Icons.calendar_today_rounded),
           const SizedBox(height: 8),
-          ..._buildScheduleRules(context, ghost),
+          ..._buildScheduleRules(context, ref, ghost),
 
           const SizedBox(height: 20),
 
           // Smart rules section
           _sectionHeader(context, 'Smart Rules', Icons.auto_awesome_rounded),
           const SizedBox(height: 8),
-          ..._buildSmartRules(context, ghost),
+          ..._buildSmartRules(context, ref, ghost),
 
           const SizedBox(height: 16),
 
           // Add rule button
-          _buildAddRuleButton(context, groups),
+          _buildAddRuleButton(context, ref, groups),
 
           const SizedBox(height: 40),
         ],
@@ -58,7 +57,7 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildStatusCard(BuildContext context, GhostProvider ghost) {
+  Widget _buildStatusCard(BuildContext context, GhostState ghost) {
     final active = ghost.activeRules;
     final isActive = ghost.isGhostActive;
 
@@ -87,7 +86,7 @@ class GhostRulesScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(12),
             ),
             child: Center(
-              child: Text(isActive ? '👻' : '👁️', style: const TextStyle(fontSize: 22)),
+              child: Text(isActive ? '\u{1F47B}' : '\u{1F441}\uFE0F', style: const TextStyle(fontSize: 22)),
             ),
           ),
           const SizedBox(width: 12),
@@ -134,17 +133,17 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  List<Widget> _buildScheduleRules(BuildContext context, GhostProvider ghost) {
+  List<Widget> _buildScheduleRules(BuildContext context, WidgetRef ref, GhostState ghost) {
     final schedules = ghost.rules.where((r) => r.type == GhostRuleType.schedule).toList();
     if (schedules.isEmpty) {
       return [
         _emptyState(context, 'No schedules yet', 'Add recurring ghost windows'),
       ];
     }
-    return schedules.map((r) => _ruleCard(context, ghost, r, Icons.schedule_rounded)).toList();
+    return schedules.map((r) => _ruleCard(context, ref, r, Icons.schedule_rounded)).toList();
   }
 
-  List<Widget> _buildSmartRules(BuildContext context, GhostProvider ghost) {
+  List<Widget> _buildSmartRules(BuildContext context, WidgetRef ref, GhostState ghost) {
     final smart = ghost.rules.where((r) => r.type != GhostRuleType.schedule).toList();
     if (smart.isEmpty) {
       return [
@@ -161,11 +160,11 @@ class GhostRulesScreen extends StatelessWidget {
         default:
           icon = Icons.auto_awesome_rounded;
       }
-      return _ruleCard(context, ghost, r, icon);
+      return _ruleCard(context, ref, r, icon);
     }).toList();
   }
 
-  Widget _ruleCard(BuildContext context, GhostProvider ghost, GhostRule rule, IconData icon) {
+  Widget _ruleCard(BuildContext context, WidgetRef ref, GhostRule rule, IconData icon) {
     final isActive = rule.isActiveNow();
     final color = _colorForType(rule.type);
 
@@ -183,7 +182,7 @@ class GhostRulesScreen extends StatelessWidget {
         borderRadius: BorderRadius.circular(14),
         child: InkWell(
           borderRadius: BorderRadius.circular(14),
-          onTap: () => _editRule(context, rule),
+          onTap: () => _editRule(context, ref, rule),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Row(
@@ -254,7 +253,7 @@ class GhostRulesScreen extends StatelessWidget {
                 // Toggle
                 Switch(
                   value: rule.enabled,
-                  onChanged: (_) => ghost.toggleRule(rule.id),
+                  onChanged: (_) => ref.read(ghostProvider.notifier).toggleRule(rule.id),
                   activeColor: color,
                 ),
               ],
@@ -301,9 +300,9 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildAddRuleButton(BuildContext context, List groups) {
+  Widget _buildAddRuleButton(BuildContext context, WidgetRef ref, List groups) {
     return FilledButton.icon(
-      onPressed: () => _showAddRuleSheet(context),
+      onPressed: () => _showAddRuleSheet(context, ref),
       icon: const Icon(Icons.add_rounded, size: 18),
       label: const Text('Add Rule', style: TextStyle(fontWeight: FontWeight.w700)),
       style: FilledButton.styleFrom(
@@ -315,9 +314,9 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  void _showAddRuleSheet(BuildContext context) {
-    final ghost = context.read<GhostProvider>();
-    final groups = context.read<GroupProvider>().groups;
+  void _showAddRuleSheet(BuildContext context, WidgetRef ref) {
+    final ghostNotifier = ref.read(ghostProvider.notifier);
+    final groups = ref.read(groupProvider).groups;
 
     showModalBottomSheet(
       context: context,
@@ -335,17 +334,17 @@ class GhostRulesScreen extends StatelessWidget {
                 style: TextStyle(
                     fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)),
             const SizedBox(height: 16),
-            _addRuleOption(ctx, '📅', 'Schedule', 'Ghost on specific days & times', () {
+            _addRuleOption(ctx, '\u{1F4C5}', 'Schedule', 'Ghost on specific days & times', () {
               Navigator.pop(ctx);
-              _createScheduleRule(context, ghost, groups);
+              _createScheduleRule(context, ghostNotifier, groups);
             }),
-            _addRuleOption(ctx, '📍', 'Location', 'Ghost when at a place', () {
+            _addRuleOption(ctx, '\u{1F4CD}', 'Location', 'Ghost when at a place', () {
               Navigator.pop(ctx);
-              _createLocationRule(context, ghost);
+              _createLocationRule(context, ghostNotifier);
             }),
-            _addRuleOption(ctx, '🪫', 'Low Battery', 'Ghost when battery is low', () {
+            _addRuleOption(ctx, '\u{1FAAB}', 'Low Battery', 'Ghost when battery is low', () {
               Navigator.pop(ctx);
-              _createBatteryRule(context, ghost);
+              _createBatteryRule(context, ghostNotifier);
             }),
             const SizedBox(height: 8),
           ],
@@ -371,7 +370,7 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  void _createScheduleRule(BuildContext context, GhostProvider ghost, List groups) {
+  void _createScheduleRule(BuildContext context, GhostNotifier ghostNotifier, List groups) {
     final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     final selectedDays = <int>{0, 1, 2, 3, 4};
     var startHour = 9;
@@ -437,7 +436,7 @@ class GhostRulesScreen extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    ghost.addRule(GhostRule(
+                    ghostNotifier.addRule(GhostRule(
                       id: DateTime.now().millisecondsSinceEpoch.toString(),
                       name: nameCtl.text.trim().isEmpty ? 'Schedule' : nameCtl.text.trim(),
                       type: GhostRuleType.schedule,
@@ -458,7 +457,7 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  void _createLocationRule(BuildContext context, GhostProvider ghost) {
+  void _createLocationRule(BuildContext context, GhostNotifier ghostNotifier) {
     final nameCtl = TextEditingController(text: 'At Home');
     showModalBottomSheet(
       context: context,
@@ -482,7 +481,7 @@ class GhostRulesScreen extends StatelessWidget {
               width: double.infinity,
               child: FilledButton(
                 onPressed: () {
-                  ghost.addRule(GhostRule(
+                  ghostNotifier.addRule(GhostRule(
                     id: DateTime.now().millisecondsSinceEpoch.toString(),
                     name: nameCtl.text.trim().isEmpty ? 'At Place' : nameCtl.text.trim(),
                     type: GhostRuleType.location,
@@ -501,7 +500,7 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  void _createBatteryRule(BuildContext context, GhostProvider ghost) {
+  void _createBatteryRule(BuildContext context, GhostNotifier ghostNotifier) {
     var threshold = 15;
     showModalBottomSheet(
       context: context,
@@ -527,7 +526,7 @@ class GhostRulesScreen extends StatelessWidget {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () {
-                    ghost.addRule(GhostRule(
+                    ghostNotifier.addRule(GhostRule(
                       id: DateTime.now().millisecondsSinceEpoch.toString(),
                       name: 'Battery < $threshold%',
                       type: GhostRuleType.battery,
@@ -546,17 +545,17 @@ class GhostRulesScreen extends StatelessWidget {
     );
   }
 
-  void _editRule(BuildContext context, GhostRule rule) {
-    // Re-use the creation dialogs pre-filled with existing values
-    final ghost = context.read<GhostProvider>();
-    ghost.removeRule(rule.id);
+  void _editRule(BuildContext context, WidgetRef ref, GhostRule rule) {
+    final ghostNotifier = ref.read(ghostProvider.notifier);
+    ghostNotifier.removeRule(rule.id);
+    final groups = ref.read(groupProvider).groups;
     switch (rule.type) {
       case GhostRuleType.schedule:
-        _createScheduleRule(context, ghost, context.read<GroupProvider>().groups);
+        _createScheduleRule(context, ghostNotifier, groups);
       case GhostRuleType.location:
-        _createLocationRule(context, ghost);
+        _createLocationRule(context, ghostNotifier);
       case GhostRuleType.battery:
-        _createBatteryRule(context, ghost);
+        _createBatteryRule(context, ghostNotifier);
       default:
         break;
     }

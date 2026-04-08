@@ -4,20 +4,19 @@ import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 import '../config.dart';
+import '../models/user.dart';
+import '../models/group.dart';
+import '../models/item.dart';
 
 /// Creates an HTTP client that rejects invalid TLS certificates.
 /// In debug mode, allows self-signed certs for local development.
 http.Client _createSecureClient() {
   final httpClient = HttpClient();
   if (!kDebugMode) {
-    // Production: strict certificate validation (system trust store)
     httpClient.badCertificateCallback = (cert, host, port) => false;
   }
   return IOClient(httpClient);
 }
-import '../models/user.dart';
-import '../models/group.dart';
-import '../models/item.dart';
 
 class ApiException implements Exception {
   final int statusCode;

@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
-import 'package:provider/provider.dart';
+import 'package:hooks_riverpod/hooks_riverpod.dart';
 
-import '../providers/group_provider.dart';
-import '../services/api_service.dart';
+import '../providers.dart';
 import '../theme.dart';
 
-class PlaceCreationScreen extends StatefulWidget {
+class PlaceCreationScreen extends ConsumerStatefulWidget {
   final LatLng initialPosition;
   const PlaceCreationScreen({super.key, required this.initialPosition});
 
   @override
-  State<PlaceCreationScreen> createState() => _PlaceCreationScreenState();
+  ConsumerState<PlaceCreationScreen> createState() => _PlaceCreationScreenState();
 }
 
-class _PlaceCreationScreenState extends State<PlaceCreationScreen> {
+class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
   String _mode = 'circle';
   late LatLng _center;
   double _radius = 150;
@@ -76,7 +75,7 @@ class _PlaceCreationScreenState extends State<PlaceCreationScreen> {
 
     setState(() => _saving = true);
     try {
-      final api = context.read<ApiService>();
+      final api = ref.read(apiServiceProvider);
       if (_isPersonal) {
         await api.createPersonalPlace(
           name,
@@ -121,7 +120,7 @@ class _PlaceCreationScreenState extends State<PlaceCreationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final groups = context.watch<GroupProvider>();
+    final groups = ref.watch(groupProvider);
 
     // Build markers
     final markers = <Marker>{};
