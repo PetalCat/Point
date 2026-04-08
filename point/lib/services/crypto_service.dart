@@ -198,16 +198,19 @@ class CryptoService {
     );
   }
 
-  /// Encrypt location data for a group. Returns base64-encoded ciphertext.
-  /// Throws if MLS is not initialized or no group exists — never sends plaintext.
-  Future<String> encrypt(String serverGroupId, Map<String, dynamic> data) async {
+  /// Encrypt location data for a group. Returns base64-encoded ciphertext,
+  /// or null if encryption isn't available yet (MLS not initialized/no group).
+  /// Never sends plaintext — callers must skip null results.
+  Future<String?> encrypt(String serverGroupId, Map<String, dynamic> data) async {
     if (!isInitialized) {
-      throw StateError('CryptoService not initialized — refusing to send unencrypted');
+      debugPrint('[Crypto] Not initialized — skipping encrypt for $serverGroupId');
+      return null;
     }
     final crypto = _requireCrypto();
     final gid = _groupIdMap[serverGroupId];
     if (gid == null) {
-      throw StateError('No MLS group for $serverGroupId — refusing to send unencrypted');
+      debugPrint('[Crypto] No MLS group for $serverGroupId — skipping (key exchange pending)');
+      return null;
     }
     final plaintext = utf8.encode(jsonEncode(data));
     final ciphertext = await crypto.encrypt(

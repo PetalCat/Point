@@ -434,6 +434,7 @@ class LocationNotifier extends Notifier<LocationState> {
       if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
         final blob = await cryptoService.encrypt(groupId, locationJson);
+        if (blob == null) continue; // MLS not ready for this group yet
         wsService.sendLocationUpdate(
           recipientType: 'group',
           recipientId: groupId,
@@ -454,6 +455,7 @@ class LocationNotifier extends Notifier<LocationState> {
             ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
             : userId;
         final blob = await cryptoService.encrypt(encryptId, locationJson);
+        if (blob == null) continue; // MLS not ready for this pair yet
         wsService.sendLocationUpdate(
           recipientType: 'user',
           recipientId: userId,
