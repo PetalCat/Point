@@ -308,6 +308,7 @@ class LocationNotifier extends Notifier<LocationState> {
 
   void _onPosition(Position position) {
     _lastPosition = position;
+    debugPrint('[Location] Fix: ${position.latitude.toStringAsFixed(5)},${position.longitude.toStringAsFixed(5)} speed=${position.speed.toStringAsFixed(1)}');
 
     final ghostState = ref.read(ghostProvider);
     final globalGhost = state.isGhostMode || ghostState.isGhostActive;
@@ -408,8 +409,11 @@ class LocationNotifier extends Notifier<LocationState> {
       return;
     }
 
-    // Don't relay if position hasn't moved beyond threshold since last relay.
-    if (_lastRelayedPosition != null) {
+    // In active/fast: always relay (timer already gates the frequency).
+    // In idle/sleeping: only relay on significant movement.
+    if (state.activity != LocationActivity.active &&
+        state.activity != LocationActivity.fast &&
+        _lastRelayedPosition != null) {
       final dist = _haversineDistance(
         position.latitude,
         position.longitude,
