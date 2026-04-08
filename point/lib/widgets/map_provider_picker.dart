@@ -41,11 +41,26 @@ class _MapProviderPickerState extends State<MapProviderPicker> {
     _selected = widget.initialValue ?? AppConfig.mapProvider;
   }
 
+  bool _showAdvanced = false;
+
   @override
   Widget build(BuildContext context) {
+    // Show Google + OSM by default, Mapbox + self-hosted behind "Advanced"
+    final mainProviders = [MapProviderType.google, MapProviderType.osm];
+    final advancedProviders = [MapProviderType.mapbox, MapProviderType.selfHosted];
+    final visibleProviders = _showAdvanced
+        ? MapProviderType.values.toList()
+        : mainProviders;
+
+    // If current selection is advanced, show all
+    if (advancedProviders.contains(_selected) && !_showAdvanced) {
+      _showAdvanced = true;
+    }
+
     return Column(
       mainAxisSize: MainAxisSize.min,
-      children: MapProviderType.values.map((provider) {
+      children: [
+        ...visibleProviders.map((provider) {
         final isSelected = _selected == provider;
         return GestureDetector(
           onTap: () {
@@ -123,7 +138,17 @@ class _MapProviderPickerState extends State<MapProviderPicker> {
             ),
           ),
         );
-      }).toList(),
+      }),
+        if (!_showAdvanced)
+          GestureDetector(
+            onTap: () => setState(() => _showAdvanced = true),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Text('Show advanced options',
+                  style: TextStyle(fontSize: 12, color: context.hintText)),
+            ),
+          ),
+      ],
     );
   }
 
@@ -190,7 +215,7 @@ class _MapProviderSheetState extends State<_MapProviderSheet> {
             ),
           ],
 
-          // Self-hosted tile URL field
+          // Self-hosted tile URL + optional token
           if (_selected == MapProviderType.selfHosted) ...[
             const SizedBox(height: 8),
             TextField(
@@ -198,6 +223,16 @@ class _MapProviderSheetState extends State<_MapProviderSheet> {
               decoration: InputDecoration(
                 labelText: 'Tile Server URL',
                 hintText: 'https://tiles.example.com/{z}/{x}/{y}.png',
+                filled: true, fillColor: context.subtleBg,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 8),
+            TextField(
+              controller: _tokenCtl,
+              decoration: InputDecoration(
+                labelText: 'API Token (optional)',
+                hintText: 'Leave empty if not required',
                 filled: true, fillColor: context.subtleBg,
                 border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
               ),

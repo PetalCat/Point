@@ -154,9 +154,12 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                 ],
-                // Map provider picker
+                // Map provider — friendly, non-technical
                 GestureDetector(
-                  onTap: () => MapProviderPicker.show(context),
+                  onTap: () async {
+                    final result = await MapProviderPicker.show(context);
+                    if (result != null) setState(() {});
+                  },
                   child: Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
                     margin: const EdgeInsets.only(bottom: 16),
@@ -168,11 +171,14 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       children: [
                         Icon(Icons.map_outlined, size: 16, color: context.secondaryText),
                         const SizedBox(width: 8),
-                        Text('Map: ', style: TextStyle(fontSize: 13, color: context.secondaryText)),
-                        Text(AppConfig.mapProvider.label,
-                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PointColors.accent)),
-                        const Spacer(),
-                        Text('change', style: TextStyle(fontSize: 12, color: context.hintText)),
+                        Expanded(
+                          child: Text.rich(TextSpan(children: [
+                            TextSpan(text: 'Maps by ', style: TextStyle(fontSize: 12, color: context.secondaryText)),
+                            TextSpan(text: AppConfig.mapProvider.label,
+                                style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w700, color: PointColors.accent)),
+                          ])),
+                        ),
+                        Text('change', style: TextStyle(fontSize: 11, color: context.hintText)),
                       ],
                     ),
                   ),

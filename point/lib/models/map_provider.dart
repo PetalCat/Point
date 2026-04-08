@@ -1,8 +1,8 @@
 enum MapProviderType {
-  google('Google Maps', 'Default. Requires API key. Google privacy policy applies.'),
-  osm('OpenStreetMap', 'Community-driven. No API key. No tracking. Most private.'),
-  mapbox('Mapbox', 'High quality tiles. Requires API key. Better privacy than Google.'),
-  selfHosted('Self-Hosted Tiles', 'Your own tile server. Complete control.');
+  google('Google Maps', 'The maps you know. Works out of the box.'),
+  osm('OpenStreetMap', 'No tracking. No data collection. Community-powered.'),
+  mapbox('Mapbox', 'Beautiful maps. Bring your own API key.'),
+  selfHosted('Custom Tile Server', 'For advanced users running their own tiles.');
 
   final String label;
   final String description;

@@ -47,8 +47,13 @@ class PointMap extends StatelessWidget {
         return _buildFlutterMap(context,
           'https://api.mapbox.com/styles/v1/mapbox/dark-v11/tiles/{z}/{x}/{y}@2x?access_token=$token');
       case MapProviderType.selfHosted:
-        return _buildFlutterMap(context,
-          AppConfig.selfHostedTileUrl ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png');
+        var url = AppConfig.selfHostedTileUrl ?? 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+        // Append token as query param if provided
+        final token = AppConfig.selfHostedToken;
+        if (token != null && token.isNotEmpty) {
+          url += (url.contains('?') ? '&' : '?') + 'access_token=$token';
+        }
+        return _buildFlutterMap(context, url);
     }
   }
 

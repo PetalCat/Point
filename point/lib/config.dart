@@ -7,6 +7,7 @@ class AppConfig {
   static MapProviderType mapProvider = MapProviderType.google;
   static String? mapboxToken;
   static String? selfHostedTileUrl;
+  static String? selfHostedToken;
 
   static Future<void> load() async {
     final prefs = await SharedPreferences.getInstance();
@@ -20,6 +21,7 @@ class AppConfig {
     );
     mapboxToken = prefs.getString('mapbox_token');
     selfHostedTileUrl = prefs.getString('self_hosted_tile_url');
+    selfHostedToken = prefs.getString('self_hosted_token');
   }
 
   static Future<void> setServerUrl(String url) async {
@@ -29,14 +31,20 @@ class AppConfig {
     await prefs.setString('server_url', serverUrl);
   }
 
-  static Future<void> setMapProvider(MapProviderType provider, {String? token, String? tileUrl}) async {
+  static Future<void> setMapProvider(MapProviderType provider, {String? token, String? tileUrl, String? selfToken}) async {
     mapProvider = provider;
-    mapboxToken = token ?? mapboxToken;
-    selfHostedTileUrl = tileUrl ?? selfHostedTileUrl;
+    if (provider == MapProviderType.mapbox) mapboxToken = token ?? mapboxToken;
+    if (provider == MapProviderType.selfHosted) {
+      selfHostedTileUrl = tileUrl ?? selfHostedTileUrl;
+      selfHostedToken = selfToken ?? token ?? selfHostedToken;
+    }
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString('map_provider', provider.name);
-    if (token != null) await prefs.setString('mapbox_token', token);
+    if (token != null && provider == MapProviderType.mapbox) await prefs.setString('mapbox_token', token);
     if (tileUrl != null) await prefs.setString('self_hosted_tile_url', tileUrl);
+    if (selfToken != null || (token != null && provider == MapProviderType.selfHosted)) {
+      await prefs.setString('self_hosted_token', selfToken ?? token!);
+    }
   }
 
   static String _normalizeUrl(String url) {
