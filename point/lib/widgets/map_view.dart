@@ -87,10 +87,12 @@ class MapViewState extends ConsumerState<MapView> {
         _animatedPositions[entry.key] = target;
       }
     }
-    // Auto-follow: keep camera on followed user, or on self if nobody selected
-    final followTarget = _followingUserId ?? '_me';
-    if (_animatedPositions.containsKey(followTarget) && changed) {
-      final pos = _animatedPositions[followTarget]!;
+    // Only auto-follow when explicitly following someone (tap on person).
+    // Don't auto-center on self — let user pan freely.
+    if (_followingUserId != null &&
+        _animatedPositions.containsKey(_followingUserId) &&
+        changed) {
+      final pos = _animatedPositions[_followingUserId!]!;
       if (_controller != null) {
         _controller!.moveCamera(CameraUpdate.newLatLng(pos));
       } else if (_fmController != null) {

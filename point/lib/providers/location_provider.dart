@@ -215,6 +215,7 @@ class LocationNotifier extends Notifier<LocationState> {
       _nudgeTimer?.cancel();
       _relayTimer?.cancel();
       _geofenceEventsController.close();
+      _lastCacheSave = null; // force save on dispose
       _saveCache();
     });
 
@@ -264,7 +265,13 @@ class LocationNotifier extends Notifier<LocationState> {
     }
   }
 
+  DateTime? _lastCacheSave;
+
   Future<void> _saveCache() async {
+    // Debounce: save at most once per 30 seconds to avoid disk I/O lag
+    final now = DateTime.now();
+    if (_lastCacheSave != null && now.difference(_lastCacheSave!).inSeconds < 30) return;
+    _lastCacheSave = now;
     try {
       final prefs = await SharedPreferences.getInstance();
       final peopleJson = <String, dynamic>{};
