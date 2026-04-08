@@ -168,25 +168,19 @@ class LocationService {
     if (_activity == LocationActivity.ghost) return;
     _isBackgrounded = true;
 
-    // Immediately reduce GPS interval for background
-    if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
-      _startContinuousGps(const Duration(seconds: 15));
-      debugPrint('[Location] Backgrounded — reduced to 15s');
+    if (_activity == LocationActivity.active) {
+      _startContinuousGps(const Duration(seconds: 5));
+      debugPrint('[Location] Backgrounded moving (walk) — 5s');
+    } else if (_activity == LocationActivity.fast) {
+      _startContinuousGps(const Duration(seconds: 3));
+      debugPrint('[Location] Backgrounded moving (drive) — 3s');
+    } else {
+      // Not moving — GPS off immediately, heartbeat handles check-ins
+      _stopGps();
+      _setActivity(LocationActivity.sleeping);
+      _startHeartbeat();
+      debugPrint('[Location] Backgrounded still — GPS off, heartbeat only');
     }
-
-    _backgroundTimer?.cancel();
-    _backgroundTimer = Timer(const Duration(minutes: 2), () {
-      debugPrint('[Location] Background timeout — entering SLEEPING');
-      if (_activity == LocationActivity.idle) {
-        _setActivity(LocationActivity.sleeping);
-        _stopGps();
-      } else if (_activity == LocationActivity.active ||
-          _activity == LocationActivity.fast) {
-        // Still moving — drop to 30s
-        _startContinuousGps(const Duration(seconds: 30));
-        debugPrint('[Location] Background 2min — reduced to 30s');
-      }
-    });
   }
 
   /// Clean up everything.
@@ -480,29 +474,37 @@ class LocationService {
 
   void _resetStillnessTimer() {
     _stillnessTimer?.cancel();
-    _stillnessTimer = Timer(const Duration(minutes: 2), _onStillnessDetected);
+    // Background: detect stillness fast (30s). Foreground: 2 min grace.
+    final timeout = _isBackgrounded
+        ? const Duration(seconds: 30)
+        : const Duration(minutes: 2);
+    _stillnessTimer = Timer(timeout, _onStillnessDetected);
   }
 
-  /// No movement >5m for 2 minutes. Ramp down: 3s->10s->30s->off.
+  /// No movement detected. Kill GPS, enter sleeping.
   void _onStillnessDetected() {
     if (_activity != LocationActivity.active &&
         _activity != LocationActivity.fast) {
       return;
     }
 
-    debugPrint('[Location] Stillness detected — starting ramp-down');
-    _startContinuousGps(const Duration(seconds: 10));
-
-    _rampDownTimer = Timer(const Duration(seconds: 30), () {
-      _startContinuousGps(const Duration(seconds: 30));
-      debugPrint('[Location] Ramp-down stage 2: 30s interval');
-
-      _rampDownTimer = Timer(const Duration(seconds: 60), () {
-        debugPrint('[Location] Ramp-down complete — entering SLEEPING');
+    if (_isBackgrounded) {
+      // Background: instant kill, heartbeat handles check-ins
+      debugPrint('[Location] Background stillness — GPS off immediately');
+      _stopGps();
+      _setActivity(LocationActivity.sleeping);
+      _startHeartbeat();
+    } else {
+      // Foreground: ramp down gracefully
+      debugPrint('[Location] Foreground stillness — ramp down');
+      _startContinuousGps(const Duration(seconds: 10));
+      _rampDownTimer = Timer(const Duration(seconds: 30), () {
+        debugPrint('[Location] Ramp-down complete — sleeping');
         _stopGps();
         _setActivity(LocationActivity.sleeping);
+        _startHeartbeat();
       });
-    });
+    }
   }
 
   // =========================================================================
@@ -511,7 +513,7 @@ class LocationService {
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(minutes: 30), (_) {
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 20), (_) {
       if (_activity == LocationActivity.sleeping ||
           _activity == LocationActivity.idle) {
         wake(WakeReason.heartbeat);
