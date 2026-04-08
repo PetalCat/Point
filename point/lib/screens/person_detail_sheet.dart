@@ -1,13 +1,15 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../providers/location_provider.dart';
 import '../theme.dart';
+import '../utils.dart' as utils;
 
 class PersonDetailSheet extends StatefulWidget {
   final String userId;
-  final PersonLocation person;
+  final PersonLocation person; // initial snapshot — live data from Provider
   final ScrollController scrollController;
   final double? myLat;
   final double? myLon;
@@ -26,33 +28,33 @@ class PersonDetailSheet extends StatefulWidget {
 }
 
 class _PersonDetailSheetState extends State<PersonDetailSheet> {
+  /// Get live person data from Provider, fall back to widget snapshot.
+  PersonLocation get _person {
+    final live = context.watch<LocationProvider>().people[widget.userId];
+    return live ?? widget.person;
+  }
+
   Color get _color => PointColors.colorForUser(widget.userId);
-  String get _name => widget.userId.split('@').first;
+  String get _name => utils.displayName(widget.userId);
   String get _initial => _name.isNotEmpty ? _name[0].toUpperCase() : '?';
 
   String get _activityLabel {
-    final speed = widget.person.speed;
+    final speed = _person.speed;
     if (speed == null || speed < 0.5) return 'Stationary';
     if (speed < 2.0) return 'Walking';
     if (speed < 5.0) return 'Cycling';
     return 'Driving';
   }
 
-  String get _timeAgo {
-    final ms = DateTime.now().millisecondsSinceEpoch - widget.person.timestamp;
-    if (ms < 60000) return 'just now';
-    if (ms < 3600000) return '${ms ~/ 60000}m ago';
-    if (ms < 86400000) return '${ms ~/ 3600000}h ago';
-    return '${ms ~/ 86400000}d ago';
-  }
+  String get _timeAgo => utils.formatTimeAgo(utils.secondsAgo(_person.timestamp));
 
   String get _distanceLabel {
     if (widget.myLat == null || widget.myLon == null) return '--';
     final meters = _haversine(
       widget.myLat!,
       widget.myLon!,
-      widget.person.lat,
-      widget.person.lon,
+      _person.lat,
+      _person.lon,
     );
     final miles = meters / 1609.344;
     if (miles < 0.1) return '${(meters).round()} ft';
@@ -61,20 +63,20 @@ class _PersonDetailSheetState extends State<PersonDetailSheet> {
   }
 
   String get _speedLabel {
-    final speed = widget.person.speed;
+    final speed = _person.speed;
     if (speed == null || speed < 0.5) return '0 mph';
     final mph = (speed * 2.237).round();
     return '$mph mph';
   }
 
   String get _batteryLabel {
-    final battery = widget.person.battery;
+    final battery = _person.battery;
     if (battery == null) return '--';
     return '$battery%';
   }
 
   IconData get _batteryIcon {
-    final battery = widget.person.battery;
+    final battery = _person.battery;
     if (battery == null) return Icons.battery_unknown;
     if (battery > 50) return Icons.battery_full;
     if (battery > 20) return Icons.battery_3_bar;
@@ -82,7 +84,7 @@ class _PersonDetailSheetState extends State<PersonDetailSheet> {
   }
 
   Color get _batteryColor {
-    final battery = widget.person.battery;
+    final battery = _person.battery;
     if (battery == null) return PointColors.textSecondary;
     if (battery > 50) return PointColors.online;
     if (battery > 20) return const Color(0xFFFFAB00);
@@ -228,7 +230,8 @@ class _PersonDetailSheetState extends State<PersonDetailSheet> {
 
   Widget _buildTimeline() {
     // For now, show the current known location as a single timeline entry
-    final time = DateTime.fromMillisecondsSinceEpoch(widget.person.timestamp);
+    final tsMs = _person.timestamp > 9999999999 ? _person.timestamp : _person.timestamp * 1000;
+    final time = DateTime.fromMillisecondsSinceEpoch(tsMs);
     final timeStr =
         '${time.hour.toString().padLeft(2, '0')}:${time.minute.toString().padLeft(2, '0')}';
 
@@ -239,7 +242,7 @@ class _PersonDetailSheetState extends State<PersonDetailSheet> {
           time: timeStr,
           title: _activityLabel,
           subtitle:
-              '${widget.person.lat.toStringAsFixed(4)}, ${widget.person.lon.toStringAsFixed(4)}',
+              '${_person.lat.toStringAsFixed(4)}, ${_person.lon.toStringAsFixed(4)}',
           isFirst: true,
           isLast: true,
         ),

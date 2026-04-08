@@ -13,6 +13,15 @@ double haversineDistance(double lat1, double lon1, double lat2, double lon2) {
   return r * 2 * atan2(sqrt(a), sqrt(1 - a));
 }
 
+/// Normalize a timestamp that might be seconds or milliseconds to seconds.
+int normalizeTimestamp(int ts) => ts > 9999999999 ? ts ~/ 1000 : ts;
+
+/// Get seconds-ago from a possibly-ms timestamp.
+int secondsAgo(int timestamp) {
+  final tsSec = normalizeTimestamp(timestamp);
+  return DateTime.now().millisecondsSinceEpoch ~/ 1000 - tsSec;
+}
+
 String formatTimeAgo(int secondsAgo) {
   if (secondsAgo < 60) return 'now';
   if (secondsAgo < 3600) return '${secondsAgo ~/ 60}m ago';

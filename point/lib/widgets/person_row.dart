@@ -13,13 +13,8 @@ class PersonRow extends StatelessWidget {
   String? get _domain => utils.userDomain(person.userId);
   bool get _isFederated => _domain != null;
   String get _initial => _name.isNotEmpty ? _name[0].toUpperCase() : '?';
-  // Timestamp could be seconds or milliseconds — normalize to seconds
-  int get _timestampSec => person.timestamp > 9999999999
-      ? person.timestamp ~/ 1000
-      : person.timestamp;
-  bool get _isStale =>
-      (DateTime.now().millisecondsSinceEpoch ~/ 1000 - _timestampSec) >
-      2 * 60 * 60;
+  int get _secAgo => utils.secondsAgo(person.timestamp);
+  bool get _isStale => _secAgo > 2 * 60 * 60;
 
   String? get _speedLabel {
     final speed = person.speed;
@@ -33,14 +28,7 @@ class PersonRow extends StatelessWidget {
     return '$activity \u00b7 $mph mph';
   }
 
-  String get _timeAgo {
-    final secAgo =
-        DateTime.now().millisecondsSinceEpoch ~/ 1000 - _timestampSec;
-    if (secAgo < 60) return 'now';
-    if (secAgo < 3600) return '${secAgo ~/ 60}m ago';
-    if (secAgo < 86400) return '${secAgo ~/ 3600}h ago';
-    return '${secAgo ~/ 86400}d ago';
-  }
+  String get _timeAgo => utils.formatTimeAgo(_secAgo);
 
   @override
   Widget build(BuildContext context) {

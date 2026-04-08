@@ -2767,11 +2767,11 @@ class _HomeScreenState extends State<HomeScreen> {
     bool value, {
     ValueChanged<bool>? onChanged,
   }) {
-    return GestureDetector(
-      onTap: onChanged != null ? () => onChanged(!value) : null,
-      behavior: HitTestBehavior.opaque,
+    return Semantics(
+      toggled: value,
+      label: '$title: $subtitle',
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         child: Row(
           children: [
             Text(icon, style: const TextStyle(fontSize: 20)),
@@ -2798,34 +2798,10 @@ class _HomeScreenState extends State<HomeScreen> {
                 ],
               ),
             ),
-            Container(
-              width: 44,
-              height: 26,
-              decoration: BoxDecoration(
-                color: value ? PointColors.online : const Color(0xFFE0E0E0),
-                borderRadius: BorderRadius.circular(13),
-                boxShadow: value
-                    ? [BoxShadow(color: PointColors.onlineGlow, blurRadius: 8)]
-                    : null,
-              ),
-              child: Align(
-                alignment: value ? Alignment.centerRight : Alignment.centerLeft,
-                child: Container(
-                  width: 22,
-                  height: 22,
-                  margin: const EdgeInsets.all(2),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    shape: BoxShape.circle,
-                    boxShadow: [
-                      BoxShadow(
-                        color: Colors.black.withValues(alpha: 0.1),
-                        blurRadius: 3,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+            Switch.adaptive(
+              value: value,
+              activeColor: PointColors.accent,
+              onChanged: onChanged,
             ),
           ],
         ),

@@ -372,38 +372,194 @@ class GhostRulesScreen extends StatelessWidget {
   }
 
   void _createScheduleRule(BuildContext context, GhostProvider ghost, List groups) {
-    ghost.addRule(GhostRule(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Work Hours',
-      type: GhostRuleType.schedule,
-      days: [0, 1, 2, 3, 4], // Mon-Fri
-      startMinute: 9 * 60, // 9 AM
-      endMinute: 17 * 60, // 5 PM
-    ));
+    final dayNames = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    final selectedDays = <int>{0, 1, 2, 3, 4};
+    var startHour = 9;
+    var endHour = 17;
+    final nameCtl = TextEditingController(text: 'Work Hours');
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: context.cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text('Schedule Rule', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800, color: context.primaryText)),
+              const SizedBox(height: 12),
+              TextField(
+                controller: nameCtl,
+                decoration: InputDecoration(
+                  labelText: 'Rule name',
+                  filled: true, fillColor: context.subtleBg,
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Wrap(
+                spacing: 6,
+                children: List.generate(7, (i) => FilterChip(
+                  label: Text(dayNames[i]),
+                  selected: selectedDays.contains(i),
+                  selectedColor: PointColors.accent.withValues(alpha: 0.2),
+                  onSelected: (v) => setSheetState(() => v ? selectedDays.add(i) : selectedDays.remove(i)),
+                )),
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Text('From:', style: TextStyle(color: context.secondaryText)),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: startHour,
+                    items: List.generate(24, (h) => DropdownMenuItem(value: h, child: Text('${h == 0 ? 12 : h > 12 ? h - 12 : h} ${h >= 12 ? 'PM' : 'AM'}'))),
+                    onChanged: (v) => setSheetState(() => startHour = v!),
+                  ),
+                  const SizedBox(width: 16),
+                  Text('To:', style: TextStyle(color: context.secondaryText)),
+                  const SizedBox(width: 8),
+                  DropdownButton<int>(
+                    value: endHour,
+                    items: List.generate(24, (h) => DropdownMenuItem(value: h, child: Text('${h == 0 ? 12 : h > 12 ? h - 12 : h} ${h >= 12 ? 'PM' : 'AM'}'))),
+                    onChanged: (v) => setSheetState(() => endHour = v!),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    ghost.addRule(GhostRule(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      name: nameCtl.text.trim().isEmpty ? 'Schedule' : nameCtl.text.trim(),
+                      type: GhostRuleType.schedule,
+                      days: selectedDays.toList()..sort(),
+                      startMinute: startHour * 60,
+                      endMinute: endHour * 60,
+                    ));
+                    Navigator.pop(ctx);
+                  },
+                  style: FilledButton.styleFrom(backgroundColor: PointColors.accent),
+                  child: const Text('Create Rule'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _createLocationRule(BuildContext context, GhostProvider ghost) {
-    ghost.addRule(GhostRule(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'At Home',
-      type: GhostRuleType.location,
-      placeName: 'Home',
-      target: GhostTarget.all,
-      exceptGroupIds: [],
-    ));
+    final nameCtl = TextEditingController(text: 'At Home');
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.cardBg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => Padding(
+        padding: EdgeInsets.fromLTRB(20, 16, 20, MediaQuery.of(ctx).viewInsets.bottom + 20),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              controller: nameCtl,
+              decoration: InputDecoration(
+                labelText: 'Place name',
+                filled: true, fillColor: context.subtleBg,
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
+              ),
+            ),
+            const SizedBox(height: 16),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton(
+                onPressed: () {
+                  ghost.addRule(GhostRule(
+                    id: DateTime.now().millisecondsSinceEpoch.toString(),
+                    name: nameCtl.text.trim().isEmpty ? 'At Place' : nameCtl.text.trim(),
+                    type: GhostRuleType.location,
+                    placeName: nameCtl.text.trim(),
+                    target: GhostTarget.all,
+                  ));
+                  Navigator.pop(ctx);
+                },
+                style: FilledButton.styleFrom(backgroundColor: PointColors.accent),
+                child: const Text('Create Rule'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   void _createBatteryRule(BuildContext context, GhostProvider ghost) {
-    ghost.addRule(GhostRule(
-      id: DateTime.now().millisecondsSinceEpoch.toString(),
-      name: 'Low Battery',
-      type: GhostRuleType.battery,
-      batteryThreshold: 15,
-    ));
+    var threshold = 15;
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: context.cardBg,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) => Padding(
+          padding: const EdgeInsets.all(20),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Ghost when battery below:', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: context.primaryText)),
+              Slider(
+                value: threshold.toDouble(),
+                min: 5, max: 50, divisions: 9,
+                label: '$threshold%',
+                activeColor: const Color(0xFFFFB700),
+                onChanged: (v) => setSheetState(() => threshold = v.round()),
+              ),
+              Text('$threshold%', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: const Color(0xFFFFB700))),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () {
+                    ghost.addRule(GhostRule(
+                      id: DateTime.now().millisecondsSinceEpoch.toString(),
+                      name: 'Battery < $threshold%',
+                      type: GhostRuleType.battery,
+                      batteryThreshold: threshold,
+                    ));
+                    Navigator.pop(ctx);
+                  },
+                  style: FilledButton.styleFrom(backgroundColor: PointColors.accent),
+                  child: const Text('Create Rule'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   void _editRule(BuildContext context, GhostRule rule) {
-    // TODO: full rule editor
+    // Re-use the creation dialogs pre-filled with existing values
+    final ghost = context.read<GhostProvider>();
+    ghost.removeRule(rule.id);
+    switch (rule.type) {
+      case GhostRuleType.schedule:
+        _createScheduleRule(context, ghost, context.read<GroupProvider>().groups);
+      case GhostRuleType.location:
+        _createLocationRule(context, ghost);
+      case GhostRuleType.battery:
+        _createBatteryRule(context, ghost);
+      default:
+        break;
+    }
   }
 
   Color _colorForType(GhostRuleType type) {
