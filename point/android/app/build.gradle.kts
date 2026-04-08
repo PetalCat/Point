@@ -52,6 +52,11 @@ android {
     }
 }
 
+configurations.all {
+    // Resolve tink/tink-android conflict between firebase and flutter_secure_storage
+    exclude(group = "com.google.crypto.tink", module = "tink")
+}
+
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
