@@ -118,18 +118,22 @@ pub fn verify_token(secret: &str, token: &str) -> Result<Claims, AppError> {
 
 pub async fn register(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     check_auth_rate_limit(&req.username)?;
     check_registration_rate_limit()?;
+    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        check_auth_rate_limit(&format!("ip:{}", ip))?;
+    }
     if req.username.is_empty() || req.password.is_empty() {
         return Err(AppError::BadRequest("username and password required".into()));
     }
     if req.username.len() < 3 || req.username.len() > 32 {
         return Err(AppError::BadRequest("username must be 3-32 characters".into()));
     }
-    if req.password.len() < 8 {
-        return Err(AppError::BadRequest("password must be at least 8 characters".into()));
+    if req.password.len() < 8 || req.password.len() > 128 {
+        return Err(AppError::BadRequest("password must be 8-128 characters".into()));
     }
     // Only allow alphanumeric + underscore/hyphen in usernames
     if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
@@ -214,9 +218,18 @@ pub async fn register(
 
 pub async fn login(
     State(state): State<AppState>,
+    headers: axum::http::HeaderMap,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     check_auth_rate_limit(&req.username)?;
+    // IP-based rate limit — 20 auth attempts per minute per IP
+    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+        check_auth_rate_limit(&format!("ip:{}", ip))?;
+    }
+    // Reject oversized passwords before Argon2 hashing — prevents CPU DoS
+    if req.password.len() > 128 {
+        return Err(AppError::Unauthorized);
+    }
     let user_id = format!("{}@{}", req.username, state.config.domain);
 
     let user = db::users::get_user_by_id(&state.pool, &user_id)

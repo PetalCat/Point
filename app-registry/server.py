@@ -16,6 +16,7 @@ Obtainium setup:
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+import html as html_mod
 import json
 import os
 import hashlib
@@ -26,6 +27,9 @@ import re
 
 PORT = int(os.environ.get('PORT', '8484'))
 DATA_DIR = os.environ.get('DATA_DIR', '/data')
+UPLOAD_TOKEN = os.environ.get('UPLOAD_TOKEN', '')  # REQUIRED for upload auth
+MAX_UPLOAD_SIZE = int(os.environ.get('MAX_UPLOAD_SIZE', str(500 * 1024 * 1024)))  # 500MB default
+ALLOWED_HOST = os.environ.get('ALLOWED_HOST', 'app.petalcat.dev')
 
 def ensure_dirs():
     os.makedirs(os.path.join(DATA_DIR, 'apps'), exist_ok=True)
@@ -159,6 +163,12 @@ class Handler(BaseHTTPRequestHandler):
         self._json_response(meta)
 
     def _api_upload(self, app_id):
+        # Require upload token — prevents supply chain attacks
+        auth = self.headers.get('Authorization', '')
+        if not UPLOAD_TOKEN or auth != f'Bearer {UPLOAD_TOKEN}':
+            self._json_response({"error": "unauthorized — set UPLOAD_TOKEN and pass as Bearer token"}, 401)
+            return
+
         content_type = self.headers.get('Content-Type', '')
         if 'multipart/form-data' not in content_type:
             self._json_response({"error": "multipart/form-data required"}, 400)
@@ -180,11 +190,18 @@ class Handler(BaseHTTPRequestHandler):
 
         os.makedirs(app_dir(app_id), exist_ok=True)
         apk_path = app_apk_path(app_id)
+        total_written = 0
         with open(apk_path, 'wb') as f:
             while True:
                 chunk = apk_field.file.read(65536)
                 if not chunk:
                     break
+                total_written += len(chunk)
+                if total_written > MAX_UPLOAD_SIZE:
+                    f.close()
+                    os.remove(apk_path)
+                    self._json_response({"error": f"file too large (max {MAX_UPLOAD_SIZE // 1048576}MB)"}, 413)
+                    return
                 f.write(chunk)
 
         size = os.path.getsize(apk_path)
@@ -269,9 +286,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _serve_index(self):
         apps = list_apps()
-        host = self.headers.get('Host', 'app.petalcat.dev')
-        scheme = 'https' if 'petalcat' in host else 'http'
-        base_url = f'{scheme}://{host}'
+        # Hardcode host to prevent Host header injection
+        base_url = f'https://{ALLOWED_HOST}'
 
         html = """<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>PetalCat Apps</title>
@@ -314,19 +330,22 @@ body{font-family:-apple-system,BlinkMacSystemFont,'SF Pro Display',system-ui,san
         if not apps:
             html += '<div class="empty">No apps registered yet</div>'
         else:
+            esc = html_mod.escape  # prevent XSS via app metadata
             for app in apps:
-                initial = app['name'][0].upper() if app.get('name') else '?'
-                dl_url = app.get('download_url', '')
+                name = esc(app.get('name', ''))
+                initial = esc(name[0].upper() if name else '?')
+                dl_url = esc(app.get('download_url', ''))
                 full_dl_url = f'{base_url}{dl_url}'
-                version = app.get('version', '?')
-                updated = app.get('updated', '?')
+                version = esc(app.get('version', '?'))
+                updated = esc(app.get('updated', '?'))
                 size_mb = app.get('size', 0) / 1048576
-                icon_url = f'/apps/{app.get("id","")}/icon.png'
+                app_id = esc(app.get('id', ''))
+                icon_url = f'/apps/{app_id}/icon.png'
                 obt_url = f'obtainium://add/{full_dl_url}'
                 html += f"""<div class="app">
 <div class="app-top">
 <div class="app-icon"><img src="{icon_url}" alt="{initial}" onerror="this.style.display='none';this.parentElement.textContent='{initial}'"></div>
-<div><div class="app-name">{app.get('name','')}</div>
+<div><div class="app-name">{name}</div>
 <div class="app-meta">v{version} &middot; {updated}</div></div></div>
 <a class="app-dl" href="{dl_url}">Download APK</a>
 <div class="btn-row">

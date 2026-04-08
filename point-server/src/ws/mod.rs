@@ -3,35 +3,31 @@ pub mod hub;
 pub mod presence;
 
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
-use axum::extract::{Query, State};
+use axum::extract::State;
 use axum::response::Response;
-use serde::Deserialize;
 
 use crate::api::AppState;
 use crate::api::auth;
 
-#[derive(Deserialize)]
-pub struct WsQuery {
-    /// Legacy support: token in URL. Prefer first-message auth.
-    token: Option<String>,
-}
-
 /// `GET /ws` — upgrade to WebSocket.
-/// Auth via first message `{"type":"auth","token":"..."}` (preferred)
-/// or via query param `?token=...` (legacy, for backwards compat).
+/// Auth via first message `{"type":"auth","token":"..."}` only.
+/// Query param token was removed — tokens in URLs leak to logs/referrers.
 pub async fn ws_upgrade(
     State(state): State<AppState>,
-    Query(query): Query<WsQuery>,
+    headers: axum::http::HeaderMap,
     ws: WebSocketUpgrade,
 ) -> Result<Response, crate::error::AppError> {
-    // If token is in the URL (legacy), verify immediately
-    if let Some(ref token) = query.token {
-        let claims = auth::verify_token(&state.jwt_secret, token)?;
-        let hub = state.hub.clone();
-        return Ok(ws.on_upgrade(move |socket| handler::handle_connection(socket, claims, state, hub)));
+    // Validate Origin header to prevent Cross-Site WebSocket Hijacking (CSWSH)
+    if let Some(origin) = headers.get("origin").and_then(|v| v.to_str().ok()) {
+        let allowed_origin = format!("https://{}", state.config.domain);
+        if origin != allowed_origin && origin != "http://localhost:3000" && origin != "http://localhost:8080" {
+            tracing::warn!(origin = %origin, "ws upgrade rejected: invalid origin");
+            return Err(crate::error::AppError::Forbidden);
+        }
     }
+    // Native app connections (no browser) won't have an Origin header — that's fine
 
-    // No token in URL — expect first-message auth
+    // First-message auth only — no query param tokens
     let hub = state.hub.clone();
     Ok(ws.on_upgrade(move |socket| authenticate_then_handle(socket, state, hub)))
 }
