@@ -256,6 +256,9 @@ class LocationService {
       _positionController.add(pos);
     }
     _setActivity(LocationActivity.idle);
+    // Start slow GPS poll in idle to detect when movement starts.
+    // _onGpsFix will auto-transition to ACTIVE when movement >5m detected.
+    _startContinuousGps(const Duration(seconds: 10));
     _startHeartbeat();
   }
 
@@ -389,6 +392,14 @@ class LocationService {
       _lastMovementTime = DateTime.now();
       _rampDownTimer?.cancel();
       _resetStillnessTimer();
+
+      // GPS proves movement — transition to ACTIVE if still sleeping/idle.
+      // This is the primary movement detection (not accelerometer).
+      if (_activity == LocationActivity.sleeping || _activity == LocationActivity.idle) {
+        debugPrint('[Location] Movement detected via GPS — transitioning to ACTIVE');
+        _setActivity(LocationActivity.active);
+        _startContinuousGps(const Duration(seconds: 3));
+      }
     }
 
     // Speed-based state transitions
