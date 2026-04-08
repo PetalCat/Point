@@ -1,7 +1,20 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 import '../config.dart';
+
+/// Creates an HTTP client that rejects invalid TLS certificates.
+/// In debug mode, allows self-signed certs for local development.
+http.Client _createSecureClient() {
+  final httpClient = HttpClient();
+  if (!kDebugMode) {
+    // Production: strict certificate validation (system trust store)
+    httpClient.badCertificateCallback = (cert, host, port) => false;
+  }
+  return IOClient(httpClient);
+}
 import '../models/user.dart';
 import '../models/group.dart';
 import '../models/item.dart';
@@ -17,6 +30,7 @@ class ApiException implements Exception {
 }
 
 class ApiService {
+  final http.Client _client = _createSecureClient();
   String? _token;
 
   void setToken(String token) {
@@ -43,24 +57,24 @@ class ApiService {
     try {
       switch (method) {
         case 'GET':
-          response = await http.get(url, headers: _headers);
+          response = await _client.get(url, headers: _headers);
           break;
         case 'POST':
-          response = await http.post(
+          response = await _client.post(
             url,
             headers: _headers,
             body: body != null ? jsonEncode(body) : null,
           );
           break;
         case 'PUT':
-          response = await http.put(
+          response = await _client.put(
             url,
             headers: _headers,
             body: body != null ? jsonEncode(body) : null,
           );
           break;
         case 'DELETE':
-          response = await http.delete(
+          response = await _client.delete(
             url,
             headers: _headers,
             body: body != null ? jsonEncode(body) : null,
@@ -131,7 +145,7 @@ class ApiService {
 
   Future<List<Group>> listGroups() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/groups');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, response.body);
     }
@@ -208,7 +222,7 @@ class ApiService {
 
   Future<List<Item>> listItems() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/items');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, response.body);
     }
@@ -253,7 +267,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listShares() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/shares');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -261,7 +275,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listIncomingRequests() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/shares/requests');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -271,7 +285,7 @@ class ApiService {
     final url = Uri.parse(
       '${AppConfig.serverUrl}/api/shares/requests/outgoing',
     );
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -309,7 +323,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listTempShares() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/shares/temp');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -329,7 +343,7 @@ class ApiService {
     var path = '/api/history/$userId?limit=$limit';
     if (since != null) path += '&since=$since';
     final url = Uri.parse('${AppConfig.serverUrl}$path');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -363,7 +377,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listPlaces(String groupId) async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/groups/$groupId/places');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -398,7 +412,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listPersonalPlaces() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/places/personal');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -441,7 +455,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listIncomingZoneConsents() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/zones/consent/incoming');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -449,7 +463,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> listGrantedZoneConsents() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/zones/consent/granted');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200)
       throw ApiException(response.statusCode, response.body);
     return (jsonDecode(response.body) as List).cast<Map<String, dynamic>>();
@@ -514,7 +528,7 @@ class ApiService {
       return kps?.cast<String>() ?? [];
     }
     final url = Uri.parse('${AppConfig.serverUrl}/api/mls/keys/$userId');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, response.body);
     }
@@ -556,7 +570,7 @@ class ApiService {
 
   Future<List<Map<String, dynamic>>> fetchMlsMessages() async {
     final url = Uri.parse('${AppConfig.serverUrl}/api/mls/messages');
-    final response = await http.get(url, headers: _headers);
+    final response = await _client.get(url, headers: _headers);
     if (response.statusCode != 200) {
       throw ApiException(response.statusCode, response.body);
     }

@@ -312,9 +312,7 @@
 	}
 
 	.bridge-card:hover {
-		border-color: rgba(63, 81, 255, 0.3);
-		transform: translateY(-4px);
-		box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
+		border-color: rgba(63, 81, 255, 0.15);
 	}
 
 	.bridge-icon {

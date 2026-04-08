@@ -34,3 +34,5 @@ docs/superpowers/
 docs/ghost-mode-concepts.html
 point/lib/firebase_options.dart
 point/android/app/google-services.json
+point/android/key.properties
+point/android/app/point-release.jks

@@ -294,6 +294,13 @@
 		overflow-x: auto;
 		border: 1px solid var(--color-border);
 		border-radius: 16px;
+		/* Scroll hint gradient on mobile */
+		-webkit-mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+		mask-image: linear-gradient(to right, #000 85%, transparent 100%);
+	}
+	.table-wrap:hover, .table-wrap:focus-within {
+		-webkit-mask-image: none;
+		mask-image: none;
 	}
 
 	table {
