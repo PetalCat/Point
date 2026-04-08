@@ -37,10 +37,17 @@ pub async fn send_request(
         return Err(AppError::BadRequest("cannot send share request to yourself".into()));
     }
 
-    // Verify target user exists
+    // Silently succeed even if target doesn't exist — prevents account enumeration
     let target = db::users::get_user_by_id(&state.pool, &body.to_user_id).await?;
     if target.is_none() {
-        return Err(AppError::NotFound("user not found".into()));
+        // Return success to prevent enumeration — request is silently dropped
+        return Ok(Json(ShareRequestResponse {
+            id: uuid::Uuid::new_v4().to_string(),
+            from_user_id: user.user_id.clone(),
+            to_user_id: body.to_user_id.clone(),
+            status: "pending".into(),
+            created_at: chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+        }));
     }
 
     let id = uuid::Uuid::new_v4().to_string();

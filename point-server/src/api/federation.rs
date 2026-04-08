@@ -1,8 +1,6 @@
 use axum::extract::State;
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use sqlx::Row;
-
 use crate::db;
 use crate::error::AppError;
 
@@ -261,6 +259,19 @@ async fn handle_federated_share_accept(
     let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
+    // Verify a pending share request from local_user to the sender exists
+    // This prevents a malicious federation server from force-creating shares
+    let has_pending = sqlx::query(
+        "SELECT id FROM share_requests WHERE from_user_id = ? AND to_user_id = ? AND status = 'pending'"
+    )
+    .bind(&local_user)
+    .bind(&msg.sender)
+    .fetch_optional(&state.pool)
+    .await?;
+    if has_pending.is_none() {
+        return Err(AppError::BadRequest("no pending share request found".into()));
+    }
+
     // Ensure shadow user exists for the federated sender
     db::users::ensure_federated_user(&state.pool, &msg.sender).await?;
 
@@ -455,27 +466,3 @@ pub struct SendFederatedBody {
     pub payload: serde_json::Value,
 }
 
-/// Discover a remote Point server's federation inbox URL.
-async fn discover_inbox(domain: &str) -> Result<String, String> {
-    let well_known_url = format!("https://{}/.well-known/point", domain);
-
-    let client = reqwest::Client::new();
-    let resp = client.get(&well_known_url)
-        .timeout(std::time::Duration::from_secs(5))
-        .send()
-        .await
-        .map_err(|e| format!("discovery request failed: {e}"))?;
-
-    if !resp.status().is_success() {
-        return Err(format!("discovery returned {}", resp.status()));
-    }
-
-    let info: WellKnownResponse = resp.json().await
-        .map_err(|e| format!("invalid discovery response: {e}"))?;
-
-    if !info.federation {
-        return Err("remote server has federation disabled".into());
-    }
-
-    Ok(info.endpoints.inbox)
-}

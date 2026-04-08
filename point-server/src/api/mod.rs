@@ -18,6 +18,7 @@ use axum::Router;
 use axum::routing::{delete, get, post, put};
 
 use crate::config::Config;
+use crate::db;
 use crate::db::DbPool;
 use crate::error::AppError;
 use crate::fcm::FcmService;
@@ -61,6 +62,18 @@ where
             .ok_or(AppError::Unauthorized)?;
 
         let claims = auth::verify_token(&app_state.jwt_secret, token)?;
+
+        // Check if token was issued before password change (revocation)
+        if let Ok(Some(user)) = db::users::get_user_by_id(&app_state.pool, &claims.sub).await {
+            if let Some(changed_at) = user.password_changed_at {
+                if let Ok(changed_ts) = chrono::NaiveDateTime::parse_from_str(&changed_at, "%Y-%m-%d %H:%M:%S") {
+                    let changed_epoch = changed_ts.and_utc().timestamp() as usize;
+                    if claims.iat < changed_epoch {
+                        return Err(AppError::Unauthorized);
+                    }
+                }
+            }
+        }
 
         Ok(AuthUser {
             user_id: claims.sub,

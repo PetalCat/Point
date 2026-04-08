@@ -30,36 +30,21 @@ pub async fn create_invite(
 }
 
 pub async fn use_invite(pool: &DbPool, code: &str) -> Result<(), sqlx::Error> {
-    let row = sqlx::query(
-        "SELECT id, max_uses, uses, expires_at FROM invites WHERE code = ?",
+    // Atomic check-and-increment: single statement prevents race conditions
+    let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    let result = sqlx::query(
+        "UPDATE invites SET uses = uses + 1 \
+         WHERE code = ? AND uses < max_uses \
+         AND (expires_at IS NULL OR expires_at > ?)",
     )
     .bind(code)
-    .fetch_optional(pool)
+    .bind(&now)
+    .execute(pool)
     .await?;
 
-    let row = row.ok_or(sqlx::Error::RowNotFound)?;
-
-    let max_uses: i32 = row.get("max_uses");
-    let uses: i32 = row.get("uses");
-    let expires_at: Option<String> = row.get("expires_at");
-    let id: String = row.get("id");
-
-    if uses >= max_uses {
+    if result.rows_affected() == 0 {
         return Err(sqlx::Error::RowNotFound);
     }
-
-    if let Some(exp) = expires_at {
-        let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-        if now > exp {
-            return Err(sqlx::Error::RowNotFound);
-        }
-    }
-
-    sqlx::query("UPDATE invites SET uses = uses + 1 WHERE id = ?")
-        .bind(&id)
-        .execute(pool)
-        .await?;
-
     Ok(())
 }
 

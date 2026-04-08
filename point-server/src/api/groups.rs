@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use crate::db;
 use crate::error::AppError;
 
-use super::{AppState, AuthUser};
+use super::{AppState, AuthUser, auth};
 
 #[derive(Debug, Deserialize)]
 pub struct CreateGroupRequest {
@@ -271,6 +271,9 @@ pub async fn join_by_code(
     auth: AuthUser,
     Path(code): Path<String>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // Rate limit join attempts: 5 per minute per user
+    auth::check_auth_rate_limit(&format!("join:{}", auth.user_id))?;
+
     let invite = db::group_invites::use_invite(&state.pool, &code).await
         .map_err(|_| AppError::NotFound("invalid or expired invite code".into()))?;
 

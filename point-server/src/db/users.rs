@@ -11,6 +11,7 @@ pub struct User {
     pub password_hash: String,
     pub is_admin: bool,
     pub created_at: String,
+    pub password_changed_at: Option<String>,
 }
 
 pub async fn create_user(
@@ -37,7 +38,7 @@ pub async fn create_user(
 
 pub async fn get_user_by_id(pool: &DbPool, id: &str) -> Result<Option<User>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT id, display_name, password_hash, is_admin, created_at FROM users WHERE id = ?",
+        "SELECT id, display_name, password_hash, is_admin, created_at, password_changed_at FROM users WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -49,6 +50,7 @@ pub async fn get_user_by_id(pool: &DbPool, id: &str) -> Result<Option<User>, sql
         password_hash: r.get("password_hash"),
         is_admin: r.get("is_admin"),
         created_at: r.get("created_at"),
+        password_changed_at: r.get("password_changed_at"),
     }))
 }
 
@@ -68,7 +70,7 @@ pub async fn delete_user(pool: &DbPool, id: &str) -> Result<(), sqlx::Error> {
 }
 
 pub async fn update_password(pool: &DbPool, id: &str, new_hash: &str) -> Result<(), sqlx::Error> {
-    sqlx::query("UPDATE users SET password_hash = ?, updated_at = datetime('now') WHERE id = ?")
+    sqlx::query("UPDATE users SET password_hash = ?, password_changed_at = datetime('now'), updated_at = datetime('now') WHERE id = ?")
         .bind(new_hash)
         .bind(id)
         .execute(pool)

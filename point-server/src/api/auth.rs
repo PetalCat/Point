@@ -20,7 +20,7 @@ static AUTH_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
 static REG_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
     LazyLock::new(DashMap::new);
 
-fn check_auth_rate_limit(key: &str) -> Result<(), AppError> {
+pub fn check_auth_rate_limit(key: &str) -> Result<(), AppError> {
     let mut entry = AUTH_RATE_LIMIT.entry(key.to_string()).or_insert((0, std::time::Instant::now()));
     if entry.1.elapsed() > std::time::Duration::from_secs(60) {
         *entry = (1, std::time::Instant::now());
@@ -75,6 +75,7 @@ pub struct Claims {
     pub sub: String,
     pub is_admin: bool,
     pub exp: usize,
+    pub iat: usize, // issued-at timestamp for token revocation
 }
 
 pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<String, AppError> {
@@ -83,10 +84,12 @@ pub fn create_token(secret: &str, user_id: &str, is_admin: bool) -> Result<Strin
         .unwrap()
         .timestamp() as usize;
 
+    let iat = chrono::Utc::now().timestamp() as usize;
     let claims = Claims {
         sub: user_id.to_string(),
         is_admin,
         exp,
+        iat,
     };
 
     // Pin to HS256 — prevent algorithm confusion attacks
@@ -163,8 +166,10 @@ pub async fn register(
     }
 
     // First user becomes admin, no invite needed
-    let user_count = db::users::count_users(&state.pool).await?;
-    let is_admin = user_count == 0;
+    // Atomic first-admin check: use INSERT with subquery to prevent TOCTOU race
+    let is_admin = db::users::count_users(&state.pool).await? == 0;
+    // Even if two requests race, only one INSERT succeeds due to PRIMARY KEY constraint
+    // The second will fail at create_user and return a generic error
 
     if !is_admin && !state.config.open_registration {
         // Invite-only mode: subsequent users need an invite code

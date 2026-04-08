@@ -142,6 +142,19 @@ pub async fn send_welcome(
     user: AuthUser,
     Json(body): Json<SendWelcomeBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // Verify sender is a member of the group
+    if !has_shared_group(&state.pool, &user.user_id, &body.recipient_id).await {
+        // Also check if this is a direct share group (dm:*)
+        if !body.group_id.starts_with("dm:") {
+            let is_member = db::groups::get_members(&state.pool, &body.group_id).await
+                .map(|m| m.iter().any(|member| member.user_id == user.user_id))
+                .unwrap_or(false);
+            if !is_member {
+                return Err(AppError::Forbidden);
+            }
+        }
+    }
+
     let engine = base64::engine::general_purpose::STANDARD;
     let payload_bytes = engine
         .decode(&body.payload)
@@ -200,6 +213,16 @@ pub async fn send_commit(
     user: AuthUser,
     Json(body): Json<SendCommitBody>,
 ) -> Result<Json<serde_json::Value>, AppError> {
+    // Verify sender is a member of the group
+    if !body.group_id.starts_with("dm:") {
+        let is_member = db::groups::get_members(&state.pool, &body.group_id).await
+            .map(|m| m.iter().any(|member| member.user_id == user.user_id))
+            .unwrap_or(false);
+        if !is_member {
+            return Err(AppError::Forbidden);
+        }
+    }
+
     let engine = base64::engine::general_purpose::STANDARD;
     let payload_bytes = engine
         .decode(&body.payload)
