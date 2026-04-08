@@ -16,6 +16,10 @@ use crate::error::AppError;
 static AUTH_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
     LazyLock::new(DashMap::new);
 
+// Global registration rate limiter — max 5 registrations per minute across all users
+static REG_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
+    LazyLock::new(DashMap::new);
+
 fn check_auth_rate_limit(key: &str) -> Result<(), AppError> {
     let mut entry = AUTH_RATE_LIMIT.entry(key.to_string()).or_insert((0, std::time::Instant::now()));
     if entry.1.elapsed() > std::time::Duration::from_secs(60) {
@@ -25,6 +29,19 @@ fn check_auth_rate_limit(key: &str) -> Result<(), AppError> {
     entry.0 += 1;
     if entry.0 > 10 {
         return Err(AppError::BadRequest("too many attempts — try again in a minute".into()));
+    }
+    Ok(())
+}
+
+fn check_registration_rate_limit() -> Result<(), AppError> {
+    let mut entry = REG_RATE_LIMIT.entry("global".to_string()).or_insert((0, std::time::Instant::now()));
+    if entry.1.elapsed() > std::time::Duration::from_secs(60) {
+        *entry = (1, std::time::Instant::now());
+        return Ok(());
+    }
+    entry.0 += 1;
+    if entry.0 > 5 {
+        return Err(AppError::BadRequest("too many registrations — try again later".into()));
     }
     Ok(())
 }
@@ -101,6 +118,7 @@ pub async fn register(
     Json(req): Json<RegisterRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     check_auth_rate_limit(&req.username)?;
+    check_registration_rate_limit()?;
     if req.username.is_empty() || req.password.is_empty() {
         return Err(AppError::BadRequest("username and password required".into()));
     }
@@ -127,7 +145,13 @@ pub async fn register(
         .replace('<', "").replace('>', "").replace('&', "&amp;")
         // Strip zero-width and invisible unicode characters
         .chars()
-        .filter(|c| !c.is_control() && *c != '\u{200B}' && *c != '\u{200C}' && *c != '\u{200D}' && *c != '\u{FEFF}')
+        .filter(|c| {
+            !c.is_control()
+            && !('\u{200B}'..='\u{200F}').contains(c)  // zero-width + LRM/RLM
+            && !('\u{202A}'..='\u{202E}').contains(c)  // bidi embedding/override (RTL override)
+            && !('\u{2066}'..='\u{2069}').contains(c)  // bidi isolates
+            && *c != '\u{FEFF}'                         // BOM
+        })
         .collect();
 
     // Check if user already exists — generic error to prevent enumeration
