@@ -58,8 +58,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     // Initialize MLS encryption
     final crypto = ref.read(cryptoServiceProvider);
     try {
-      final domain = Uri.parse(AppConfig.serverUrl).host;
-      final identity = '${auth.userId}@$domain';
+      // userId already includes @domain from registration
+      final identity = auth.userId ?? '';
       await crypto.init(identity);
     } catch (e) {
       debugPrint('MLS init: $e');
