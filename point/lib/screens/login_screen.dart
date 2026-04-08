@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../config.dart';
 import '../providers.dart';
 import '../theme.dart';
+import '../widgets/map_provider_picker.dart';
 import 'register_screen.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -153,6 +154,29 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                     ),
                   ),
                 ],
+                // Map provider picker
+                GestureDetector(
+                  onTap: () => MapProviderPicker.show(context),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: context.subtleBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.map_outlined, size: 16, color: context.secondaryText),
+                        const SizedBox(width: 8),
+                        Text('Map: ', style: TextStyle(fontSize: 13, color: context.secondaryText)),
+                        Text(AppConfig.mapProvider.label,
+                            style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: PointColors.accent)),
+                        const Spacer(),
+                        Text('change', style: TextStyle(fontSize: 12, color: context.hintText)),
+                      ],
+                    ),
+                  ),
+                ),
                 _buildTextField(
                   controller: _usernameController,
                   hint: 'Username',

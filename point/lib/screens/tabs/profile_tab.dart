@@ -7,6 +7,7 @@ import '../../theme.dart';
 import '../../providers.dart';
 import '../../screens/ghost_rules_screen.dart';
 import '../../widgets/ghost_bottom_sheet.dart';
+import '../../widgets/map_provider_picker.dart';
 
 class ProfileTab extends ConsumerWidget {
   const ProfileTab({super.key});
@@ -227,6 +228,12 @@ class ProfileTab extends ConsumerWidget {
                     },
                     behavior: HitTestBehavior.opaque,
                     child: _settingRow(context, '\u{1F319}', 'Dark Mode', modeLabel),
+                  ),
+                  _divider(context),
+                  GestureDetector(
+                    onTap: () => MapProviderPicker.show(context),
+                    behavior: HitTestBehavior.opaque,
+                    child: _settingRow(context, '\u{1F5FA}\uFE0F', 'Map Provider', AppConfig.mapProvider.label),
                   ),
                   _divider(context),
                   _settingRow(context, '\u{1F514}', 'Notifications', ''),
