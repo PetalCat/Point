@@ -371,7 +371,7 @@ class LocationNotifier extends Notifier<LocationState> {
         break;
       case LocationActivity.active:
         _relayTimer =
-            Timer.periodic(const Duration(seconds: 8), (_) => _relayTick());
+            Timer.periodic(const Duration(seconds: 3), (_) => _relayTick());
         break;
       case LocationActivity.fast:
         _relayTimer =

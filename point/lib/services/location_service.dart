@@ -246,20 +246,15 @@ class LocationService {
   void _handleAppOpenWake() async {
     if (_activity == LocationActivity.active ||
         _activity == LocationActivity.fast) {
-      // Already actively tracking — don't downgrade.
       return;
     }
 
-    final pos = await getCurrentPosition();
-    if (pos != null) {
-      _lastPosition = pos;
-      _positionController.add(pos);
-    }
-    _setActivity(LocationActivity.idle);
-    // Start slow GPS poll in idle to detect when movement starts.
-    // _onGpsFix will auto-transition to ACTIVE when movement >5m detected.
-    _startContinuousGps(const Duration(seconds: 10));
-    _startHeartbeat();
+    // App is in foreground — go straight to high-accuracy continuous tracking.
+    // No waiting for movement detection. Battery saving is for background only.
+    _setActivity(LocationActivity.active);
+    _startContinuousGps(const Duration(seconds: 2));
+    _resetStillnessTimer();
+    debugPrint('[Location] App open — continuous tracking at 2s');
   }
 
   /// Movement detected: start GPS at 10s -> first fix -> check speed ->
