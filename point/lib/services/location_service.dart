@@ -147,23 +147,44 @@ class LocationService {
   void appOpened() {
     _backgroundTimer?.cancel();
     _backgroundTimer = null;
-    wake(WakeReason.appOpen);
+    _isBackgrounded = false;
+
+    // Restore full-speed tracking if we were throttled in background
+    if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
+      final interval = _activity == LocationActivity.fast
+          ? const Duration(seconds: 2)
+          : const Duration(seconds: 2);
+      _startContinuousGps(interval);
+      debugPrint('[Location] Foregrounded — restored 2s tracking');
+    } else {
+      wake(WakeReason.appOpen);
+    }
   }
 
   /// Called when the app goes to background. Starts countdown to SLEEPING.
+  bool _isBackgrounded = false;
+
   void appBackgrounded() {
     if (_activity == LocationActivity.ghost) return;
+    _isBackgrounded = true;
+
+    // Immediately reduce GPS interval for background
+    if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
+      _startContinuousGps(const Duration(seconds: 15));
+      debugPrint('[Location] Backgrounded — reduced to 15s');
+    }
 
     _backgroundTimer?.cancel();
     _backgroundTimer = Timer(const Duration(minutes: 2), () {
       debugPrint('[Location] Background timeout — entering SLEEPING');
       if (_activity == LocationActivity.idle) {
         _setActivity(LocationActivity.sleeping);
+        _stopGps();
       } else if (_activity == LocationActivity.active ||
           _activity == LocationActivity.fast) {
-        // If actively moving while backgrounded, keep tracking but at reduced
-        // rate. The stillness timer will eventually shut it down.
-        debugPrint('[Location] Still moving in background — keeping GPS');
+        // Still moving — drop to 30s
+        _startContinuousGps(const Duration(seconds: 30));
+        debugPrint('[Location] Background 2min — reduced to 30s');
       }
     });
   }
@@ -264,14 +285,11 @@ class LocationService {
     _consecutiveSlowFixes = 0;
     _rampDownTimer?.cancel();
 
-    // Start at 10s interval, will ramp up after first fixes
-    _startContinuousGps(const Duration(seconds: 10));
-    if (_activity != LocationActivity.active &&
-        _activity != LocationActivity.fast) {
-      _setActivity(LocationActivity.active);
-    }
+    // Go straight to full-speed tracking. No ramp.
+    _setActivity(LocationActivity.active);
+    _startContinuousGps(const Duration(seconds: 2));
     _resetStillnessTimer();
-    _startHeartbeat();
+    debugPrint('[Location] Movement wake — 2s tracking');
   }
 
   /// Nudge: one-shot fix -> emit -> don't change state.
@@ -391,9 +409,9 @@ class LocationService {
       // GPS proves movement — transition to ACTIVE if still sleeping/idle.
       // This is the primary movement detection (not accelerometer).
       if (_activity == LocationActivity.sleeping || _activity == LocationActivity.idle) {
-        debugPrint('[Location] Movement detected via GPS — transitioning to ACTIVE');
+        debugPrint('[Location] Movement detected via GPS — transitioning to ACTIVE at 2s');
         _setActivity(LocationActivity.active);
-        _startContinuousGps(const Duration(seconds: 3));
+        _startContinuousGps(const Duration(seconds: 2));
       }
     }
 
