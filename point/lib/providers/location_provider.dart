@@ -322,6 +322,9 @@ class LocationNotifier extends Notifier<LocationState> {
       if (pos != null) {
         _lastPosition = pos;
         state = state.copyWith(myPosition: pos);
+        // Always relay initial position so others see us immediately
+        _relayTick();
+        debugPrint('[Location] Initial position relayed: ${pos.latitude.toStringAsFixed(4)},${pos.longitude.toStringAsFixed(4)}');
       }
     } catch (_) {}
   }
@@ -677,6 +680,10 @@ class LocationNotifier extends Notifier<LocationState> {
   /// producing fixes (which flow through the position listener and get relayed
   /// on the activity-dependent timer).
   void _autoWake() {
+    final locationService = ref.read(locationServiceProvider);
+    locationService.hasActiveShares =
+        state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty;
+
     if (state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty) {
       final locationService = ref.read(locationServiceProvider);
       locationService.wake(WakeReason.movement);

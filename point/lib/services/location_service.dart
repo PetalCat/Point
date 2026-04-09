@@ -176,23 +176,35 @@ class LocationService {
   /// Called when the app goes to background. Starts countdown to SLEEPING.
   bool _isBackgrounded = false;
 
+  /// Whether the user has active shares (set by LocationNotifier).
+  /// When true, background GPS stays on at reduced rate.
+  bool hasActiveShares = false;
+
   void appBackgrounded() {
     if (_activity == LocationActivity.ghost) return;
     _isBackgrounded = true;
 
-    if (_activity == LocationActivity.active) {
-      _startContinuousGps(const Duration(seconds: 5));
-      debugPrint('[Location] Backgrounded moving (walk) — 5s');
-    } else if (_activity == LocationActivity.fast) {
-      _startContinuousGps(const Duration(seconds: 3));
-      debugPrint('[Location] Backgrounded moving (drive) — 3s');
+    if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
+      // Moving — keep GPS at background rate
+      final interval = _activity == LocationActivity.fast
+          ? const Duration(seconds: 10)
+          : const Duration(seconds: 15);
+      _startContinuousGps(interval);
+      debugPrint('[Location] Backgrounded moving — ${interval.inSeconds}s');
+    } else if (hasActiveShares) {
+      // Still but sharing — keep foreground service GPS at slow rate.
+      // Android kills accelerometer subscriptions in background, so we
+      // can't rely on accel-wake. The foreground service keeps us alive.
+      _setActivity(LocationActivity.active);
+      _startContinuousGps(const Duration(seconds: 30));
+      _resetStillnessTimer();
+      debugPrint('[Location] Backgrounded still w/ shares — 30s GPS via foreground service');
     } else {
-      // Not moving — GPS off, accelerometer watches for motion
+      // No shares — safe to sleep completely
       _stopGps();
       _setActivity(LocationActivity.sleeping);
-      _startAccelerometerWatch();
       _startHeartbeat();
-      debugPrint('[Location] Backgrounded still — GPS off, accel watching');
+      debugPrint('[Location] Backgrounded no shares — sleeping');
     }
   }
 
