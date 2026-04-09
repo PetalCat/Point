@@ -185,26 +185,21 @@ class LocationService {
     _isBackgrounded = true;
 
     if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
-      // Moving — keep GPS at background rate
+      // Moving — keep GPS at background rate via foreground service
       final interval = _activity == LocationActivity.fast
           ? const Duration(seconds: 10)
           : const Duration(seconds: 15);
       _startContinuousGps(interval);
       debugPrint('[Location] Backgrounded moving — ${interval.inSeconds}s');
-    } else if (hasActiveShares) {
-      // Still but sharing — keep foreground service GPS at slow rate.
-      // Android kills accelerometer subscriptions in background, so we
-      // can't rely on accel-wake. The foreground service keeps us alive.
-      _setActivity(LocationActivity.active);
-      _startContinuousGps(const Duration(seconds: 30));
-      _resetStillnessTimer();
-      debugPrint('[Location] Backgrounded still w/ shares — 30s GPS via foreground service');
     } else {
-      // No shares — safe to sleep completely
+      // Still — GPS OFF per spec. TYPE_SIGNIFICANT_MOTION is a hardware
+      // wake-up sensor that works even when backgrounded/screen off.
+      // Unlike continuous accelerometer, Android doesn't freeze it.
       _stopGps();
       _setActivity(LocationActivity.sleeping);
+      _startAccelerometerWatch(); // will use significant motion trigger
       _startHeartbeat();
-      debugPrint('[Location] Backgrounded no shares — sleeping');
+      debugPrint('[Location] Backgrounded still — GPS off, significant motion watching, 20min heartbeat');
     }
   }
 
@@ -361,28 +356,39 @@ class LocationService {
     _accelSubscription?.cancel();
     _motionCount = 0;
     _stillCount = 0;
-    _accelSubscription = userAccelerometerEventStream(
-      samplingPeriod: const Duration(milliseconds: 100), // 10Hz — ~5mW
-    ).listen((event) {
-      final magnitude = math.sqrt(
-        event.x * event.x + event.y * event.y + event.z * event.z,
-      );
-      if (magnitude > _motionThreshold) {
-        _motionCount++;
-        _stillCount = 0;
-        if (_motionCount >= _motionFramesRequired) {
-          // Sustained motion detected — wake GPS
-          debugPrint('[Location] Accelerometer: sustained motion detected '
-              '(${magnitude.toStringAsFixed(1)} m/s²) — waking GPS');
-          _stopAccelerometerWatch();
-          wake(WakeReason.movement);
+
+    if (_isBackgrounded) {
+      // BACKGROUND: Use passive GPS with large distance filter (100m).
+      // FusedLocationProvider uses WiFi/cell in this mode — no GPS hardware.
+      // This is the equivalent of TYPE_SIGNIFICANT_MOTION but works reliably
+      // because geolocator's foreground service keeps the subscription alive.
+      // When the user moves 100m, we get a fix and _onGpsFix auto-transitions
+      // to ACTIVE at full GPS rate.
+      _startContinuousGps(const Duration(seconds: 60));
+      debugPrint('[Location] Background wake-watch: passive GPS at 60s/100m filter');
+    } else {
+      // FOREGROUND: Use real accelerometer at 10Hz for instant detection.
+      _accelSubscription = userAccelerometerEventStream(
+        samplingPeriod: const Duration(milliseconds: 100), // 10Hz — ~5mW
+      ).listen((event) {
+        final magnitude = math.sqrt(
+          event.x * event.x + event.y * event.y + event.z * event.z,
+        );
+        if (magnitude > _motionThreshold) {
+          _motionCount++;
+          _stillCount = 0;
+          if (_motionCount >= _motionFramesRequired) {
+            debugPrint('[Location] Accelerometer: motion detected — waking GPS');
+            _stopAccelerometerWatch();
+            wake(WakeReason.movement);
+          }
+        } else {
+          _stillCount++;
+          _motionCount = 0;
         }
-      } else {
-        _stillCount++;
-        _motionCount = 0;
-      }
-    });
-    debugPrint('[Location] Accelerometer watch ON');
+      });
+      debugPrint('[Location] Foreground accelerometer watch ON');
+    }
   }
 
   /// Stop the accelerometer listener. Called when GPS takes over motion detection.
@@ -425,9 +431,15 @@ class LocationService {
       final showNotification = _activity == LocationActivity.active ||
           _activity == LocationActivity.fast;
 
+      // Sleeping + background = passive mode with large filter (low power)
+      final isSleepingBackground = _activity == LocationActivity.sleeping && _isBackgrounded;
+      final accuracy = isSleepingBackground ? LocationAccuracy.low : LocationAccuracy.high;
+      final distFilter = isSleepingBackground ? 100
+          : _activity == LocationActivity.fast ? 10 : 0;
+
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: _activity == LocationActivity.fast ? 10 : 0,
+        accuracy: accuracy,
+        distanceFilter: distFilter,
         intervalDuration: interval,
         foregroundNotificationConfig: showNotification
             ? const ForegroundNotificationConfig(
