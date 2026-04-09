@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../config.dart';
+import '../mutations.dart';
 import '../providers.dart';
 import '../theme.dart';
 import '../widgets/map_provider_picker.dart';
@@ -18,7 +19,6 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   final _usernameController = TextEditingController();
   final _passwordController = TextEditingController();
   final _serverUrlController = TextEditingController();
-  bool _submitting = false;
   bool _editingServer = false;
 
   @override
@@ -42,7 +42,8 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    final login = ref.read(loginMutation);
+    if (login.isPending) return;
 
     final serverText = _serverUrlController.text.trim();
     if (serverText.isEmpty) {
@@ -56,14 +57,18 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
 
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _submitting = true);
-    await ref.read(authProvider.notifier).login(_usernameController.text.trim(), _passwordController.text);
-    if (mounted) setState(() => _submitting = false);
+    final username = _usernameController.text.trim();
+    final password = _passwordController.text;
+    loginMutation.run(ref, (tsx) async {
+      return await tsx.get(authProvider.notifier).login(username, password);
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
+    final login = ref.watch(loginMutation);
+    final submitting = login.isPending;
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -209,22 +214,32 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 const SizedBox(height: 24),
                 SizedBox(
                   height: 20,
-                  child: auth.error != null
-                      ? Text(
-                          auth.error!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: Colors.red,
-                            fontSize: 13,
-                          ),
-                        )
-                      : null,
+                  child: switch (login) {
+                    MutationError(:final error) => Text(
+                        error.toString(),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.red,
+                          fontSize: 13,
+                        ),
+                      ),
+                    _ => auth.error != null
+                        ? Text(
+                            auth.error!,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              color: Colors.red,
+                              fontSize: 13,
+                            ),
+                          )
+                        : null,
+                  },
                 ),
                 const SizedBox(height: 8),
                 SizedBox(
                   height: 52,
                   child: ElevatedButton(
-                    onPressed: _submitting ? null : _submit,
+                    onPressed: submitting ? null : _submit,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF3F51FF),
                       foregroundColor: Colors.white,
@@ -236,7 +251,7 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                       ),
                       elevation: 0,
                     ),
-                    child: _submitting
+                    child: submitting
                         ? const SizedBox(
                             width: 22,
                             height: 22,

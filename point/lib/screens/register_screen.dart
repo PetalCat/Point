@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 import '../config.dart';
+import '../mutations.dart';
 import '../providers.dart';
 import '../theme.dart';
 
@@ -19,7 +20,6 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   final _confirmPasswordController = TextEditingController();
   final _inviteCodeController = TextEditingController();
   final _serverUrlController = TextEditingController();
-  bool _submitting = false;
   bool _editingServer = false;
 
   @override
@@ -46,7 +46,8 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting) return;
+    final register = ref.read(registerMutation);
+    if (register.isPending) return;
 
     final serverText = _serverUrlController.text.trim();
     if (serverText.isEmpty) {
@@ -60,25 +61,29 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
 
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _submitting = true);
+    final username = _usernameController.text.trim();
+    final displayName = _displayNameController.text.trim();
+    final password = _passwordController.text;
     final inviteCode = _inviteCodeController.text.trim();
-    final success = await ref.read(authProvider.notifier).register(
-      _usernameController.text.trim(),
-      _displayNameController.text.trim(),
-      _passwordController.text,
-      inviteCode: inviteCode.isEmpty ? null : inviteCode,
-    );
-    if (mounted) {
-      setState(() => _submitting = false);
-      if (success) {
+    registerMutation.run(ref, (tsx) async {
+      final success = await tsx.get(authProvider.notifier).register(
+        username,
+        displayName,
+        password,
+        inviteCode: inviteCode.isEmpty ? null : inviteCode,
+      );
+      if (success && mounted) {
         Navigator.of(context).popUntil((route) => route.isFirst);
       }
-    }
+      return success;
+    });
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authProvider);
+    final register = ref.watch(registerMutation);
+    final submitting = register.isPending;
 
     return Scaffold(
       backgroundColor: context.pageBg,
@@ -206,19 +211,26 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
               const SizedBox(height: 24),
               SizedBox(
                 height: 20,
-                child: auth.error != null
-                    ? Text(
-                        auth.error!,
-                        textAlign: TextAlign.center,
-                        style: const TextStyle(color: Colors.red, fontSize: 13),
-                      )
-                    : null,
+                child: switch (register) {
+                  MutationError(:final error) => Text(
+                      error.toString(),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(color: Colors.red, fontSize: 13),
+                    ),
+                  _ => auth.error != null
+                      ? Text(
+                          auth.error!,
+                          textAlign: TextAlign.center,
+                          style: const TextStyle(color: Colors.red, fontSize: 13),
+                        )
+                      : null,
+                },
               ),
               const SizedBox(height: 8),
               SizedBox(
                 height: 52,
                 child: ElevatedButton(
-                  onPressed: _submitting ? null : _submit,
+                  onPressed: submitting ? null : _submit,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF3F51FF),
                     foregroundColor: Colors.white,
@@ -230,7 +242,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                     ),
                     elevation: 0,
                   ),
-                  child: _submitting
+                  child: submitting
                       ? const SizedBox(
                           width: 22,
                           height: 22,

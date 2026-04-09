@@ -3,6 +3,7 @@ import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../../theme.dart';
 import '../../providers.dart';
+import '../../mutations.dart';
 import '../group_detail_screen.dart';
 
 class SharingTab extends ConsumerStatefulWidget {
@@ -23,6 +24,29 @@ class _SharingTabState extends ConsumerState<SharingTab> {
     final groups = ref.watch(groupProvider);
     final sharing = ref.watch(sharingProvider);
     final filterLabels = ['All', 'People', 'Groups', 'Requests'];
+
+    // Listen for mutation errors and show snackbars
+    ref.listen(sendShareRequestMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to send share request')),
+        );
+      }
+    });
+    ref.listen(createTempShareMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to create temporary share')),
+        );
+      }
+    });
+    ref.listen(removeShareMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to remove share')),
+        );
+      }
+    });
 
     return RefreshIndicator(
       color: PointColors.accent,
@@ -544,7 +568,9 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                 );
                 if (confirmed == true) {
                   Navigator.pop(ctx);
-                  ref.read(sharingProvider.notifier).removeShare(userId);
+                  removeShareMutation(userId).run(ref, (tsx) async {
+                    await tsx.get(sharingProvider.notifier).removeShare(userId);
+                  });
                 }
               }, danger: true),
             ],
@@ -600,6 +626,10 @@ class _SharingTabState extends ConsumerState<SharingTab> {
     final userId = request['from_user_id'] as String? ?? '';
     final requestId = request['id'] as String? ?? '';
     final name = userId.split('@').first;
+    final acceptState = ref.watch(acceptRequestMutation(requestId));
+    final rejectState = ref.watch(rejectRequestMutation(requestId));
+    final busy = acceptState.isPending || rejectState.isPending;
+
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -607,91 +637,138 @@ class _SharingTabState extends ConsumerState<SharingTab> {
         color: context.cardBg,
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Row(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 38,
-            height: 38,
-            decoration: BoxDecoration(
-              color: PointColors.colorForUser(userId),
-              shape: BoxShape.circle,
-            ),
-            child: Center(
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: PointColors.colorForUser(userId),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: context.primaryText,
+                      ),
+                    ),
+                    Text(
+                      'wants to share with you',
+                      style: TextStyle(fontSize: 11, color: context.secondaryText),
+                    ),
+                  ],
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: busy
+                      ? null
+                      : () {
+                          rejectRequestMutation(requestId).run(ref, (tsx) async {
+                            await tsx.get(sharingProvider.notifier).rejectRequest(requestId);
+                          });
+                        },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: context.subtleBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: rejectState.isPending
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text(
+                            'Reject',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: PointColors.textSecondary,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: busy
+                      ? null
+                      : () {
+                          acceptRequestMutation(requestId).run(ref, (tsx) async {
+                            await tsx.get(sharingProvider.notifier).acceptRequest(requestId);
+                          });
+                        },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: PointColors.accent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: acceptState.isPending
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Text(
+                            'Accept',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (acceptState.hasError || rejectState.hasError)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
               child: Text(
-                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                acceptState.hasError
+                    ? 'Failed to accept request'
+                    : 'Failed to reject request',
                 style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w900,
-                  color: Colors.white,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: PointColors.danger,
                 ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  name,
-                  style: TextStyle(
-                    fontSize: 15,
-                    fontWeight: FontWeight.w800,
-                    color: context.primaryText,
-                  ),
-                ),
-                Text(
-                  'wants to share with you',
-                  style: TextStyle(fontSize: 11, color: context.secondaryText),
-                ),
-              ],
-            ),
-          ),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => ref.read(sharingProvider.notifier).rejectRequest(requestId),
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: context.subtleBg,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'Reject',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: PointColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(width: 6),
-          Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: () => ref.read(sharingProvider.notifier).acceptRequest(requestId),
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                decoration: BoxDecoration(
-                  color: PointColors.accent,
-                  borderRadius: BorderRadius.circular(10),
-                ),
-                child: const Text(
-                  'Accept',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
-                  ),
-                ),
-              ),
-            ),
-          ),
         ],
       ),
     );
@@ -1031,28 +1108,30 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                     Navigator.pop(ctx);
 
                     if (selectedDuration == -1) {
-                      // Permanent share request
-                      final success = await ref
-                          .read(sharingProvider.notifier)
-                          .sendRequest(userId);
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                              success
-                                  ? 'Share request sent to ${userId.split('@').first}'
-                                  : 'Failed to send request',
+                      // Permanent share request via mutation
+                      sendShareRequestMutation.run(ref, (tsx) async {
+                        final success = await tsx
+                            .get(sharingProvider.notifier)
+                            .sendRequest(userId);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(
+                                success
+                                    ? 'Share request sent to ${userId.split('@').first}'
+                                    : 'Failed to send request',
+                              ),
                             ),
-                          ),
-                        );
-                      }
+                          );
+                        }
+                        return success;
+                      });
                     } else {
-                      // Temp share
-                      try {
-                        await ref.read(sharingProvider.notifier).createTempShare(
-                          userId,
-                          selectedDuration,
-                        );
+                      // Temp share via mutation
+                      createTempShareMutation.run(ref, (tsx) async {
+                        final result = await tsx
+                            .get(sharingProvider.notifier)
+                            .createTempShare(userId, selectedDuration);
                         if (mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
@@ -1062,13 +1141,8 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                             ),
                           );
                         }
-                      } catch (e) {
-                        if (mounted) {
-                          ScaffoldMessenger.of(
-                            context,
-                          ).showSnackBar(SnackBar(content: Text('Failed: $e')));
-                        }
-                      }
+                        return result;
+                      });
                     }
                   },
                   style: ElevatedButton.styleFrom(
