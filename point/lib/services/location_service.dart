@@ -336,14 +336,18 @@ class LocationService {
 
     _lastPosition = pos;
 
-    if (shouldEmit) {
-      _lastRelayTime = DateTime.now();
-      _positionController.add(pos);
-      debugPrint('[Location] Heartbeat: moved >50m, emitting position');
-    } else {
-      debugPrint('[Location] Heartbeat: still within 50m, skipping relay');
+    // Always emit on heartbeat so contacts see "last seen 15m ago"
+    // instead of "last seen 8h ago". Even if position unchanged.
+    _lastRelayTime = DateTime.now();
+    _positionController.add(pos);
+    debugPrint('[Location] Heartbeat: emitting position (moved=${shouldEmit ? ">50m" : "<50m"})');
+
+    // If actually moved significantly, transition to ACTIVE
+    if (shouldEmit && (_activity == LocationActivity.sleeping || _activity == LocationActivity.idle)) {
+      debugPrint('[Location] Heartbeat detected movement — waking to ACTIVE');
+      _setActivity(LocationActivity.active);
+      _startContinuousGps(_isBackgrounded ? const Duration(seconds: 15) : const Duration(seconds: 2));
     }
-    // Stay in current state (usually SLEEPING).
   }
 
   // =========================================================================
@@ -599,12 +603,12 @@ class LocationService {
 
   void _startHeartbeat() {
     _heartbeatTimer?.cancel();
-    _heartbeatTimer = Timer.periodic(const Duration(minutes: 20), (_) {
-      if (_activity == LocationActivity.sleeping ||
-          _activity == LocationActivity.idle) {
-        wake(WakeReason.heartbeat);
-      }
-      // If ACTIVE/FAST, GPS is already running — no heartbeat needed.
+    // Fire every 15 min. The passive GPS foreground service keeps the
+    // process alive so this timer actually fires (unlike WorkManager
+    // which Android can delay indefinitely).
+    _heartbeatTimer = Timer.periodic(const Duration(minutes: 15), (_) {
+      debugPrint('[Location] Heartbeat tick — requesting fresh fix');
+      wake(WakeReason.heartbeat);
     });
   }
 
