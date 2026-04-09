@@ -103,6 +103,23 @@ class WsService {
     });
   }
 
+  void sendBatchLocationUpdate({
+    required String recipientType,
+    required String recipientId,
+    required List<String> encryptedBlobs,
+    required String sourceType,
+    required List<int> timestamps,
+  }) {
+    send({
+      'type': 'location.batch_update',
+      'recipient_type': recipientType,
+      'recipient_id': recipientId,
+      'encrypted_blobs': encryptedBlobs,
+      'source_type': sourceType,
+      'timestamps': timestamps,
+    });
+  }
+
   void sendPresence({int? battery, String? activity}) {
     send({
       'type': 'presence.update',

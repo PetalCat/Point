@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/location_update.dart';
 import '../providers.dart';
 import '../services/location_service.dart';
+import '../services/relay_buffer.dart';
 
 class TrailPoint {
   final double lat;
@@ -102,6 +103,7 @@ class LocationState {
   final List<String> activeUserIds;
   final Set<String> zoneConsentedUsers;
   final LocationActivity activity;
+  final LearnedZone? currentZone;
 
   /// Derived: sharing is active when the activity state implies relay.
   bool get isSharing =>
@@ -121,6 +123,7 @@ class LocationState {
     this.activeUserIds = const [],
     this.zoneConsentedUsers = const {},
     this.activity = LocationActivity.sleeping,
+    this.currentZone,
   });
 
   LocationState copyWith({
@@ -136,8 +139,10 @@ class LocationState {
     List<String>? activeUserIds,
     Set<String>? zoneConsentedUsers,
     LocationActivity? activity,
+    LearnedZone? currentZone,
     bool clearViewingUserId = false,
     bool clearMyPosition = false,
+    bool clearCurrentZone = false,
   }) {
     return LocationState(
       people: people ?? this.people,
@@ -153,6 +158,7 @@ class LocationState {
       activeUserIds: activeUserIds ?? this.activeUserIds,
       zoneConsentedUsers: zoneConsentedUsers ?? this.zoneConsentedUsers,
       activity: activity ?? this.activity,
+      currentZone: clearCurrentZone ? null : (currentZone ?? this.currentZone),
     );
   }
 }
@@ -178,6 +184,21 @@ class LocationNotifier extends Notifier<LocationState> {
   /// Minimum distance (meters) the device must move before relaying again.
   static const double _relayDistanceThreshold = 5.0;
 
+  /// Auto-flush interval for background batching.
+  static const Duration _backgroundFlushInterval = Duration(seconds: 30);
+
+  /// Whether the app is currently backgrounded.
+  bool _isBackgrounded = false;
+
+  /// Buffer for batching location fixes in background mode.
+  late final RelayBuffer _relayBuffer;
+
+  /// Zone learning service — detects and manages auto-learned places.
+  late final ZoneLearningService _zoneLearningService;
+
+  /// Whether we were inside a learned zone on the previous fix (for enter/exit detection).
+  bool _wasInZone = false;
+
   final _geofenceEventsController =
       StreamController<Map<String, dynamic>>.broadcast();
   Stream<Map<String, dynamic>> get geofenceEvents =>
@@ -191,6 +212,8 @@ class LocationNotifier extends Notifier<LocationState> {
   LocationState build() {
     final wsService = ref.read(wsServiceProvider);
     final locationService = ref.read(locationServiceProvider);
+    _relayBuffer = ref.read(relayBufferProvider);
+    _zoneLearningService = ref.read(zoneLearningServiceProvider);
 
     // Listen for WS messages (location broadcasts, presence, nudges).
     _wsSubscription = wsService.messages.listen(_handleWsMessage);
@@ -214,6 +237,7 @@ class LocationNotifier extends Notifier<LocationState> {
       _activitySubscription?.cancel();
       _nudgeTimer?.cancel();
       _relayTimer?.cancel();
+      _relayBuffer.dispose();
       _geofenceEventsController.close();
       _lastCacheSave = null; // force save on dispose
       _saveCache();
@@ -336,9 +360,37 @@ class LocationNotifier extends Notifier<LocationState> {
 
     state = state.copyWith(myPosition: position, trails: newTrails);
 
+    // Feed position to zone learning service (dwell detection & zone refinement).
+    _zoneLearningService.onPositionUpdate(position.latitude, position.longitude);
+
+    // Check if we're inside a learned zone.
+    final zone = _zoneLearningService.getZoneAt(position.latitude, position.longitude);
+    final nowInZone = zone != null && zone.confidence >= 50;
+
+    if (nowInZone && !_wasInZone) {
+      // Just entered a zone — relay zone center once, then suppress.
+      debugPrint('[Zones] Entered "${zone!.displayName}" — relaying zone center, then suppressing');
+      state = state.copyWith(currentZone: zone);
+      _relayTick(); // one last relay with current position
+      _wasInZone = true;
+    } else if (!nowInZone && _wasInZone) {
+      // Just left a zone — wake GPS immediately and relay departure.
+      debugPrint('[Zones] Left zone — waking GPS for departure relay');
+      state = state.copyWith(clearCurrentZone: true);
+      _wasInZone = false;
+      final locationService = ref.read(locationServiceProvider);
+      locationService.wake(WakeReason.movement);
+      _relayTick(); // relay departure position
+    } else if (nowInZone) {
+      // Still inside zone — update state but don't relay.
+      state = state.copyWith(currentZone: zone);
+    }
+
     // In IDLE/SLEEPING: relay if position changed significantly (>10m)
     // This ensures contacts see your initial position even when you're not "active"
-    if (state.activity == LocationActivity.idle || state.activity == LocationActivity.sleeping) {
+    // Skip if we're inside a learned zone (relay suppressed).
+    if (!nowInZone &&
+        (state.activity == LocationActivity.idle || state.activity == LocationActivity.sleeping)) {
       if (_shouldRelayPositionChange(position)) {
         _relayTick();
       }
@@ -363,7 +415,11 @@ class LocationNotifier extends Notifier<LocationState> {
 
     switch (activity) {
       case LocationActivity.sleeping:
-        // No relay — server keeps last known position.
+        // Flush any remaining buffered fixes before sleeping.
+        if (_relayBuffer.isNotEmpty) {
+          _flushBatch(_relayBuffer.flush());
+        }
+        _relayBuffer.stopAutoFlush();
         break;
       case LocationActivity.idle:
         // Relay once on entering idle (so server has current pos),
@@ -409,6 +465,14 @@ class LocationNotifier extends Notifier<LocationState> {
       return;
     }
 
+    // Zone suppression: if inside a learned zone with high confidence,
+    // skip relay (server already has zone center from the entry relay).
+    if (_wasInZone &&
+        _zoneLearningService.shouldSuppressRelay(
+            position.latitude, position.longitude)) {
+      return;
+    }
+
     // In active/fast: always relay (timer already gates the frequency).
     // In idle/sleeping: only relay on significant movement.
     if (state.activity != LocationActivity.active &&
@@ -445,6 +509,19 @@ class LocationNotifier extends Notifier<LocationState> {
       timestamp: position.timestamp.millisecondsSinceEpoch,
     );
 
+    // Background mode: buffer fixes for batched send (fewer radio wakes).
+    if (_isBackgrounded) {
+      _relayBuffer.add(locationData, onOverflow: _flushBatch);
+      return;
+    }
+
+    // Foreground mode: send immediately.
+    _sendSingleFix(locationData);
+  }
+
+  /// Send a single location fix to all active recipients (foreground path).
+  Future<void> _sendSingleFix(LocationData locationData) async {
+    final ghostState = ref.read(ghostProvider);
     final locationJson = locationData.toJson();
     final cryptoService = ref.read(cryptoServiceProvider);
     final wsService = ref.read(wsServiceProvider);
@@ -489,12 +566,101 @@ class LocationNotifier extends Notifier<LocationState> {
     }
   }
 
+  /// Flush a batch of buffered fixes -- encrypt each individually and send as
+  /// a single `location.batch_update` message per recipient.
+  Future<void> _flushBatch(List<LocationData> batch) async {
+    if (batch.isEmpty) return;
+
+    final ghostState = ref.read(ghostProvider);
+    if (state.isGhostMode ||
+        ghostState.isGlobalGhostOn ||
+        ghostState.hasActiveTimer) {
+      return;
+    }
+
+    final cryptoService = ref.read(cryptoServiceProvider);
+    final wsService = ref.read(wsServiceProvider);
+
+    // Each fix is encrypted individually (MLS requires per-message encryption).
+    for (final groupId in state.activeGroupIds) {
+      if (ghostState.isGhostedForGroup(groupId)) continue;
+      try {
+        final blobs = <String>[];
+        final timestamps = <int>[];
+        for (final fix in batch) {
+          final blob = await cryptoService.encrypt(groupId, fix.toJson());
+          blobs.add(blob);
+          timestamps.add(fix.timestamp);
+        }
+        wsService.sendBatchLocationUpdate(
+          recipientType: 'group',
+          recipientId: groupId,
+          encryptedBlobs: blobs,
+          sourceType: 'gps',
+          timestamps: timestamps,
+        );
+        state = state.copyWith(lastLocationSent: DateTime.now());
+      } catch (e) {
+        debugPrint('[Location] Batch encrypt failed for group $groupId: $e');
+      }
+    }
+
+    for (final userId in state.activeUserIds) {
+      if (ghostState.isGhostedForGroup(userId)) continue;
+      try {
+        final encryptId = state.myUserId != null
+            ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
+            : userId;
+        final blobs = <String>[];
+        final timestamps = <int>[];
+        for (final fix in batch) {
+          final blob = await cryptoService.encrypt(encryptId, fix.toJson());
+          blobs.add(blob);
+          timestamps.add(fix.timestamp);
+        }
+        wsService.sendBatchLocationUpdate(
+          recipientType: 'user',
+          recipientId: userId,
+          encryptedBlobs: blobs,
+          sourceType: 'gps',
+          timestamps: timestamps,
+        );
+      } catch (e) {
+        debugPrint('[Location] Batch encrypt failed for user $userId: $e');
+      }
+    }
+
+    debugPrint('[Location] Flushed batch of ${batch.length} fixes');
+  }
+
   // ---------------------------------------------------------------------------
   // Public API
   // ---------------------------------------------------------------------------
 
   void setMyUserId(String id) {
     state = state.copyWith(myUserId: id);
+  }
+
+  /// Called when the app transitions between foreground and background.
+  /// In background mode, location fixes are buffered and sent in batches
+  /// every 30 seconds to reduce radio wakes and save battery.
+  void setBackgrounded(bool backgrounded) {
+    if (_isBackgrounded == backgrounded) return;
+    _isBackgrounded = backgrounded;
+
+    if (backgrounded) {
+      // Entering background: start auto-flush timer.
+      debugPrint('[Location] Entering background — starting batch relay (${_backgroundFlushInterval.inSeconds}s)');
+      _relayBuffer.startAutoFlush(_backgroundFlushInterval, _flushBatch);
+    } else {
+      // Returning to foreground: flush any buffered fixes immediately and
+      // switch back to direct relay.
+      debugPrint('[Location] Returning to foreground — flushing buffer and resuming direct relay');
+      _relayBuffer.stopAutoFlush();
+      if (_relayBuffer.isNotEmpty) {
+        _flushBatch(_relayBuffer.flush());
+      }
+    }
   }
 
   void setActiveGroups(List<String> groupIds) {

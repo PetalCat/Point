@@ -53,6 +53,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     ws.sendPresence();
     locationNotifier.setMyUserId(auth.userId ?? '');
 
+    // Load learned zones from local storage.
+    final zoneLearning = ref.read(zoneLearningServiceProvider);
+    await zoneLearning.load();
+
     // Ghost provider reads apiService via ref internally
 
     // Initialize MLS encryption

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:sensors_plus/sensors_plus.dart';
 
 // ---------------------------------------------------------------------------
 // v1 compat — kept so LocationProvider and MapView compile without changes.
@@ -51,6 +52,14 @@ class LocationService {
 
   // Ramp-down timer for stillness detection
   Timer? _rampDownTimer;
+
+  // ---- Accelerometer gate (Layer 1 — v3) ----------------------------------
+  StreamSubscription<UserAccelerometerEvent>? _accelSubscription;
+  int _motionCount = 0;  // consecutive frames with significant acceleration
+  int _stillCount = 0;   // consecutive frames below threshold
+  static const double _motionThreshold = 1.5; // m/s² above gravity noise
+  static const int _motionFramesRequired = 5;  // ~500ms of sustained motion at 10Hz
+  static const int _stillFramesRequired = 30;  // ~3s of stillness at 10Hz
 
   // ---- Streams -------------------------------------------------------------
   final _positionController = StreamController<Position>.broadcast();
@@ -131,6 +140,7 @@ class LocationService {
   void enterGhost() {
     debugPrint('[Location] Entering ghost mode');
     _stopGps();
+    _stopAccelerometerWatch();
     _cancelAllTimers();
     _setActivity(LocationActivity.ghost);
   }
@@ -140,6 +150,7 @@ class LocationService {
     if (_activity != LocationActivity.ghost) return;
     debugPrint('[Location] Exiting ghost mode');
     _setActivity(LocationActivity.sleeping);
+    _startAccelerometerWatch();
     _startHeartbeat();
   }
 
@@ -151,6 +162,7 @@ class LocationService {
 
     // Restore full-speed tracking if we were throttled in background
     if (_activity == LocationActivity.active || _activity == LocationActivity.fast) {
+      _stopAccelerometerWatch(); // GPS is running, no need for accel
       final interval = _activity == LocationActivity.fast
           ? const Duration(seconds: 2)
           : const Duration(seconds: 2);
@@ -175,17 +187,19 @@ class LocationService {
       _startContinuousGps(const Duration(seconds: 3));
       debugPrint('[Location] Backgrounded moving (drive) — 3s');
     } else {
-      // Not moving — GPS off immediately, heartbeat handles check-ins
+      // Not moving — GPS off, accelerometer watches for motion
       _stopGps();
       _setActivity(LocationActivity.sleeping);
+      _startAccelerometerWatch();
       _startHeartbeat();
-      debugPrint('[Location] Backgrounded still — GPS off, heartbeat only');
+      debugPrint('[Location] Backgrounded still — GPS off, accel watching');
     }
   }
 
   /// Clean up everything.
   void dispose() {
     _stopGps();
+    _stopAccelerometerWatch();
     _cancelAllTimers();
     _positionController.close();
     _activityController.close();
@@ -246,6 +260,7 @@ class LocationService {
   /// v1 compat: stops tracking entirely. Enters SLEEPING.
   void stopTracking() {
     _stopGps();
+    _stopAccelerometerWatch();
     _cancelAllTimers();
     if (_activity != LocationActivity.ghost) {
       _setActivity(LocationActivity.sleeping);
@@ -266,6 +281,7 @@ class LocationService {
 
     // App is in foreground — go straight to high-accuracy continuous tracking.
     // No waiting for movement detection. Battery saving is for background only.
+    _stopAccelerometerWatch(); // GPS takes over
     _setActivity(LocationActivity.active);
     _startContinuousGps(const Duration(seconds: 2));
     _resetStillnessTimer();
@@ -278,6 +294,7 @@ class LocationService {
     _consecutiveFastFixes = 0;
     _consecutiveSlowFixes = 0;
     _rampDownTimer?.cancel();
+    _stopAccelerometerWatch(); // GPS takes over motion detection
 
     // Go straight to full-speed tracking. No ramp.
     _setActivity(LocationActivity.active);
@@ -320,6 +337,49 @@ class LocationService {
       debugPrint('[Location] Heartbeat: still within 50m, skipping relay');
     }
     // Stay in current state (usually SLEEPING).
+  }
+
+  // =========================================================================
+  // Accelerometer gate (Layer 1 — v3)
+  // =========================================================================
+
+  /// Start listening to the accelerometer to detect motion while GPS is OFF.
+  /// UserAccelerometerEvent already has gravity subtracted — readings near 0 = still.
+  void _startAccelerometerWatch() {
+    _accelSubscription?.cancel();
+    _motionCount = 0;
+    _stillCount = 0;
+    _accelSubscription = userAccelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 100), // 10Hz — ~5mW
+    ).listen((event) {
+      final magnitude = math.sqrt(
+        event.x * event.x + event.y * event.y + event.z * event.z,
+      );
+      if (magnitude > _motionThreshold) {
+        _motionCount++;
+        _stillCount = 0;
+        if (_motionCount >= _motionFramesRequired) {
+          // Sustained motion detected — wake GPS
+          debugPrint('[Location] Accelerometer: sustained motion detected '
+              '(${magnitude.toStringAsFixed(1)} m/s²) — waking GPS');
+          _stopAccelerometerWatch();
+          wake(WakeReason.movement);
+        }
+      } else {
+        _stillCount++;
+        _motionCount = 0;
+      }
+    });
+    debugPrint('[Location] Accelerometer watch ON');
+  }
+
+  /// Stop the accelerometer listener. Called when GPS takes over motion detection.
+  void _stopAccelerometerWatch() {
+    _accelSubscription?.cancel();
+    _accelSubscription = null;
+    _motionCount = 0;
+    _stillCount = 0;
+    debugPrint('[Location] Accelerometer watch OFF');
   }
 
   // =========================================================================
@@ -490,18 +550,20 @@ class LocationService {
 
     if (_isBackgrounded) {
       // Background: instant kill, heartbeat handles check-ins
-      debugPrint('[Location] Background stillness — GPS off immediately');
+      debugPrint('[Location] Background stillness — GPS off, accel watching');
       _stopGps();
       _setActivity(LocationActivity.sleeping);
+      _startAccelerometerWatch();
       _startHeartbeat();
     } else {
       // Foreground: ramp down gracefully
       debugPrint('[Location] Foreground stillness — ramp down');
       _startContinuousGps(const Duration(seconds: 10));
       _rampDownTimer = Timer(const Duration(seconds: 30), () {
-        debugPrint('[Location] Ramp-down complete — sleeping');
+        debugPrint('[Location] Ramp-down complete — sleeping, accel watching');
         _stopGps();
         _setActivity(LocationActivity.sleeping);
+        _startAccelerometerWatch();
         _startHeartbeat();
       });
     }

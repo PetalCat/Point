@@ -42,6 +42,10 @@ struct Envelope {
     place_name: Option<String>,
     event: Option<String>,
 
+    // location.batch_update fields
+    encrypted_blobs: Option<Vec<String>>,
+    timestamps: Option<Vec<i64>>,
+
     // location.nudge fields
     target_user_id: Option<String>,
 }
@@ -100,7 +104,7 @@ pub async fn handle_connection(ws: WebSocket, claims: Claims, state: AppState, h
 /// Simple per-user rate limiter. Returns true if the message should be dropped.
 fn rate_limited(counters: &mut std::collections::HashMap<String, (u32, std::time::Instant)>, msg_type: &str) -> bool {
     let (max_per_min, key) = match msg_type {
-        "location.update" => (60, "loc"),
+        "location.update" | "location.batch_update" => (60, "loc"),
         "location.nudge" => (10, "nudge"),
         "presence.update" => (30, "pres"),
         _ => (120, "other"),
@@ -138,6 +142,7 @@ async fn process_message(
 
     match envelope.msg_type.as_str() {
         "location.update" => handle_location_update(user_id, &envelope, state, hub).await,
+        "location.batch_update" => handle_location_batch_update(user_id, &envelope, state, hub).await,
         "presence.update" => handle_presence_update(user_id, &envelope, state, hub).await,
         "location.nudge" => handle_location_nudge(user_id, &envelope, state, hub).await,
         "location.subscribe" => {
@@ -310,6 +315,173 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
             tracing::warn!(recipient_type = %other, "unknown recipient_type");
         }
     }
+}
+
+/// Handle a batched location update — multiple fixes sent as one message.
+/// Stores ALL fixes in history for trail playback, but only broadcasts the
+/// LATEST position to viewers.
+async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &AppState, hub: &Hub) {
+    let recipient_type = match &env.recipient_type {
+        Some(v) => v.as_str(),
+        None => return,
+    };
+    let recipient_id = match &env.recipient_id {
+        Some(v) => v.as_str(),
+        None => return,
+    };
+    let blobs = match &env.encrypted_blobs {
+        Some(v) if !v.is_empty() => v,
+        _ => return,
+    };
+    let timestamps = match &env.timestamps {
+        Some(v) if v.len() == blobs.len() => v,
+        _ => return,
+    };
+    let source_type = env.source_type.as_deref().unwrap_or("native");
+
+    // Server-side ghost safety net
+    match db::users::is_ghost_active(&state.pool, user_id).await {
+        Ok(true) => {
+            tracing::debug!(user = %user_id, "dropping batch location — ghost active");
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to check ghost flag, allowing batch");
+        }
+    }
+
+    // Store every fix in history for trail playback.
+    for (blob, ts) in blobs.iter().zip(timestamps.iter()) {
+        let history_id = uuid::Uuid::new_v4().to_string();
+        if let Err(e) = db::history::store_history_point(
+            &state.pool,
+            &history_id,
+            user_id,
+            blob.as_bytes(),
+            source_type,
+            *ts,
+        )
+        .await
+        {
+            tracing::error!(error = %e, "failed to store batch history point");
+        }
+    }
+
+    // Store only the latest fix as the current location.
+    let latest_blob = &blobs[blobs.len() - 1];
+    let latest_ts = timestamps[timestamps.len() - 1];
+    let id = uuid::Uuid::new_v4().to_string();
+    let ttl: i64 = 300;
+    if let Err(e) = db::locations::store_location(
+        &state.pool,
+        &id,
+        user_id,
+        recipient_type,
+        recipient_id,
+        latest_blob.as_bytes(),
+        source_type,
+        latest_ts,
+        ttl,
+    )
+    .await
+    {
+        tracing::error!(error = %e, "failed to store batch latest location");
+        return;
+    }
+
+    // Broadcast only the LATEST position to viewers.
+    let outgoing = serde_json::json!({
+        "type": "location.broadcast",
+        "sender_id": user_id,
+        "recipient_type": recipient_type,
+        "recipient_id": recipient_id,
+        "encrypted_blob": latest_blob,
+        "source_type": source_type,
+        "timestamp": latest_ts,
+    });
+    let data = outgoing.to_string().into_bytes();
+
+    match recipient_type {
+        "group" => {
+            match db::groups::get_members(&state.pool, recipient_id).await {
+                Ok(members) => {
+                    for m in &members {
+                        if m.user_id != user_id {
+                            hub.send_to_user(&m.user_id, &data);
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to look up group members for batch");
+                }
+            }
+        }
+        "user" => {
+            let is_federated = recipient_id.contains('@')
+                && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
+
+            if is_federated {
+                let sender = if user_id.contains('@') {
+                    user_id.to_string()
+                } else {
+                    format!("{}@{}", user_id, state.config.domain)
+                };
+                let msg = serde_json::json!({
+                    "sender": sender,
+                    "recipient": recipient_id,
+                    "message_type": "location.update",
+                    "payload": {
+                        "encrypted_blob": latest_blob,
+                        "source_type": source_type,
+                    },
+                    "timestamp": latest_ts,
+                });
+                let fed_keys = state.federation_keys.clone();
+                let recipient = recipient_id.to_string();
+                tokio::spawn(async move {
+                    if let Some(domain) = recipient.split('@').nth(1) {
+                        let url = format!("https://{}/federation/inbox", domain);
+                        let body_bytes = serde_json::to_vec(&msg).unwrap_or_default();
+                        let signature = fed_keys.sign(&body_bytes);
+                        let client = reqwest::Client::new();
+                        if let Err(e) = client.post(&url)
+                            .header("X-Point-Signature", &signature)
+                            .json(&msg)
+                            .timeout(std::time::Duration::from_secs(10))
+                            .send()
+                            .await
+                        {
+                            tracing::error!(error = %e, recipient = %recipient, "federation batch forward failed");
+                        }
+                    }
+                });
+            } else {
+                match db::shares::are_sharing(&state.pool, user_id, recipient_id).await {
+                    Ok(true) => {
+                        if recipient_id != user_id {
+                            hub.send_to_user(recipient_id, &data);
+                        }
+                    }
+                    Ok(false) => {
+                        tracing::warn!(
+                            sender = %user_id,
+                            recipient = %recipient_id,
+                            "batch location update dropped: no active share"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(error = %e, "failed to check share status for batch");
+                    }
+                }
+            }
+        }
+        other => {
+            tracing::warn!(recipient_type = %other, "unknown recipient_type in batch");
+        }
+    }
+
+    tracing::debug!(user_id = %user_id, count = blobs.len(), "batch location update processed");
 }
 
 /// Handle a location nudge — request a fresh update from a specific user.
