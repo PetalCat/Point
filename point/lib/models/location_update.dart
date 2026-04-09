@@ -5,6 +5,7 @@ class LocationData {
   final double? speed;
   final double? heading;
   final int? battery;
+  final bool? charging;
   final String? activity;
   final int timestamp;
 
@@ -15,6 +16,7 @@ class LocationData {
     this.speed,
     this.heading,
     this.battery,
+    this.charging,
     this.activity,
     required this.timestamp,
   });
@@ -26,6 +28,7 @@ class LocationData {
     'speed': speed,
     'heading': heading,
     'battery': battery,
+    'charging': charging,
     'activity': activity,
     'timestamp': timestamp,
   };
@@ -37,6 +40,7 @@ class LocationData {
     speed: (json['speed'] as num?)?.toDouble(),
     heading: (json['heading'] as num?)?.toDouble(),
     battery: json['battery'] as int?,
+    charging: json['charging'] as bool?,
     activity: json['activity'] as String?,
     timestamp: json['timestamp'] as int,
   );

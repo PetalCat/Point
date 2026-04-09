@@ -172,9 +172,13 @@ class PersonRow extends StatelessWidget {
   }
 
   Widget _batteryIndicator(int level) {
+    final isCharging = person.charging ?? false;
     final Color color;
     final IconData icon;
-    if (level > 50) {
+    if (isCharging) {
+      color = PointColors.online;
+      icon = Icons.battery_charging_full;
+    } else if (level > 50) {
       color = PointColors.online;
       icon = Icons.battery_full;
     } else if (level > 20) {

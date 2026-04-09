@@ -27,6 +27,7 @@ class PersonLocation {
   final String sourceType;
   final int timestamp;
   final int? battery;
+  final bool? charging;
   final String? activity;
   final double? speed;
   final bool online;
@@ -39,6 +40,7 @@ class PersonLocation {
     required this.sourceType,
     required this.timestamp,
     this.battery,
+    this.charging,
     this.activity,
     this.speed,
     this.online = true,
@@ -51,6 +53,7 @@ class PersonLocation {
     String? sourceType,
     int? timestamp,
     int? battery,
+    bool? charging,
     String? activity,
     double? speed,
     bool? online,
@@ -63,6 +66,7 @@ class PersonLocation {
       sourceType: sourceType ?? this.sourceType,
       timestamp: timestamp ?? this.timestamp,
       battery: battery ?? this.battery,
+      charging: charging ?? this.charging,
       activity: activity ?? this.activity,
       speed: speed ?? this.speed,
       online: online ?? this.online,
@@ -72,7 +76,7 @@ class PersonLocation {
 
   Map<String, dynamic> toJson() => {
     'userId': userId, 'lat': lat, 'lon': lon, 'sourceType': sourceType,
-    'timestamp': timestamp, 'battery': battery, 'activity': activity,
+    'timestamp': timestamp, 'battery': battery, 'charging': charging, 'activity': activity,
     'speed': speed, 'precision': precision,
   };
 
@@ -83,6 +87,7 @@ class PersonLocation {
     sourceType: j['sourceType'] ?? 'cached',
     timestamp: j['timestamp'] ?? 0,
     battery: j['battery'],
+    charging: j['charging'],
     activity: j['activity'],
     speed: (j['speed'] as num?)?.toDouble(),
     online: false, // cached people are offline until confirmed
@@ -492,10 +497,14 @@ class LocationNotifier extends Notifier<LocationState> {
 
     _lastRelayedPosition = position;
 
-    // Read battery level for the payload.
+    // Read battery level and charging state.
     int? batteryLevel;
+    bool? isCharging;
     try {
       batteryLevel = await _battery.batteryLevel;
+      final batteryState = await _battery.batteryState;
+      isCharging = batteryState == BatteryState.charging ||
+          batteryState == BatteryState.full;
     } catch (_) {}
 
     if (batteryLevel != null) {
@@ -509,6 +518,7 @@ class LocationNotifier extends Notifier<LocationState> {
       speed: position.speed,
       heading: position.heading,
       battery: batteryLevel,
+      charging: isCharging,
       timestamp: position.timestamp.millisecondsSinceEpoch,
     );
 
@@ -937,6 +947,7 @@ class LocationNotifier extends Notifier<LocationState> {
         sourceType: sourceType,
         timestamp: data.timestamp,
         battery: data.battery ?? existing?.battery,
+        charging: data.charging ?? existing?.charging,
         activity: data.activity ?? existing?.activity,
         speed: data.speed,
         online: true,
