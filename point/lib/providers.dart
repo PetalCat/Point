@@ -6,6 +6,7 @@ import 'services/location_service.dart';
 import 'services/crypto_service.dart';
 import 'services/relay_buffer.dart';
 import 'services/zone_learning_service.dart';
+import 'services/native_geofence_service.dart';
 import 'providers/auth_provider.dart';
 import 'providers/group_provider.dart';
 import 'providers/sharing_provider.dart';
@@ -32,6 +33,7 @@ final locationServiceProvider = Provider<LocationService>((ref) => LocationServi
 final cryptoServiceProvider = Provider<CryptoService>((ref) => CryptoService(ref.watch(apiServiceProvider)));
 final relayBufferProvider = Provider<RelayBuffer>((ref) => RelayBuffer());
 final zoneLearningServiceProvider = Provider<ZoneLearningService>((ref) => ZoneLearningService());
+final nativeGeofenceServiceProvider = Provider<NativeGeofenceService>((ref) => NativeGeofenceService());
 
 // Notifier providers
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);

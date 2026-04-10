@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../models/location_update.dart';
 import '../providers.dart';
 import '../services/location_service.dart';
+import '../services/native_geofence_service.dart';
 import '../services/relay_buffer.dart';
 
 class TrailPoint {
@@ -177,8 +178,10 @@ class LocationNotifier extends Notifier<LocationState> {
   StreamSubscription<Map<String, dynamic>>? _wsSubscription;
   StreamSubscription<Position>? _positionSubscription;
   StreamSubscription<LocationActivity>? _activitySubscription;
+  StreamSubscription<String>? _geofenceExitSubscription;
   Timer? _nudgeTimer;
   Timer? _relayTimer;
+  Timer? _zoneCheckTimer;
 
   /// Last position captured from the GPS stream, used by the relay tick.
   Position? _lastPosition;
@@ -188,6 +191,10 @@ class LocationNotifier extends Notifier<LocationState> {
 
   /// Minimum distance (meters) the device must move before relaying again.
   static const double _relayDistanceThreshold = 5.0;
+
+  /// How often to check if we've left a learned zone while in-zone.
+  /// Catches the case where the OS didn't fire the geofence exit or GPS was asleep.
+  static const Duration _zoneCheckInterval = Duration(minutes: 10);
 
   /// Auto-flush interval for background batching.
   static const Duration _backgroundFlushInterval = Duration(seconds: 30);
@@ -200,6 +207,9 @@ class LocationNotifier extends Notifier<LocationState> {
 
   /// Zone learning service — detects and manages auto-learned places.
   late final ZoneLearningService _zoneLearningService;
+
+  /// Native OS geofence service — survives app sleep/kill.
+  late final NativeGeofenceService _nativeGeofenceService;
 
   /// Whether we were inside a learned zone on the previous fix (for enter/exit detection).
   bool _wasInZone = false;
@@ -219,6 +229,7 @@ class LocationNotifier extends Notifier<LocationState> {
     final locationService = ref.read(locationServiceProvider);
     _relayBuffer = ref.read(relayBufferProvider);
     _zoneLearningService = ref.read(zoneLearningServiceProvider);
+    _nativeGeofenceService = ref.read(nativeGeofenceServiceProvider);
 
     // Listen for WS messages (location broadcasts, presence, nudges).
     _wsSubscription = wsService.messages.listen(_handleWsMessage);
@@ -230,6 +241,10 @@ class LocationNotifier extends Notifier<LocationState> {
     _activitySubscription =
         locationService.activityChanges.listen(_onActivityChange);
 
+    // Listen for OS-level geofence exit events (survives app sleep/doze).
+    _geofenceExitSubscription =
+        _nativeGeofenceService.onZoneExit.listen(_onOsGeofenceExit);
+
     // Load cached state first so everyone appears immediately on launch.
     _loadCache();
 
@@ -240,8 +255,10 @@ class LocationNotifier extends Notifier<LocationState> {
       _wsSubscription?.cancel();
       _positionSubscription?.cancel();
       _activitySubscription?.cancel();
+      _geofenceExitSubscription?.cancel();
       _nudgeTimer?.cancel();
       _relayTimer?.cancel();
+      _zoneCheckTimer?.cancel();
       _relayBuffer.dispose();
       _geofenceEventsController.close();
       _lastCacheSave = null; // force save on dispose
@@ -330,6 +347,17 @@ class LocationNotifier extends Notifier<LocationState> {
         // Always relay initial position so others see us immediately
         _relayTick();
         debugPrint('[Location] Initial position relayed: ${pos.latitude.toStringAsFixed(4)},${pos.longitude.toStringAsFixed(4)}');
+
+        // Re-establish zone state after app restart (e.g., update, reboot, OOM kill).
+        // OS geofences survive app restarts but are cleared on reboot, so re-register.
+        final zone = _zoneLearningService.getZoneAt(pos.latitude, pos.longitude);
+        if (zone != null && zone.confidence >= 50) {
+          debugPrint('[Zones] App restart inside "${zone.displayName}" — re-registering');
+          _wasInZone = true;
+          state = state.copyWith(currentZone: zone);
+          _startZoneCheckTimer();
+          _registerOsGeofence(zone);
+        }
       }
     } catch (_) {}
   }
@@ -372,6 +400,8 @@ class LocationNotifier extends Notifier<LocationState> {
     _zoneLearningService.onPositionUpdate(position.latitude, position.longitude);
 
     // Check if we're inside a learned zone.
+    // Entry uses base radius (isInside), exit uses 1.2x radius (isOutside)
+    // to prevent flickering at the boundary.
     final zone = _zoneLearningService.getZoneAt(position.latitude, position.longitude);
     final nowInZone = zone != null && zone.confidence >= 50;
 
@@ -381,17 +411,21 @@ class LocationNotifier extends Notifier<LocationState> {
       state = state.copyWith(currentZone: zone);
       _relayTick(); // one last relay with current position
       _wasInZone = true;
-    } else if (!nowInZone && _wasInZone) {
-      // Just left a zone — wake GPS immediately and relay departure.
-      debugPrint('[Zones] Left zone — waking GPS for departure relay');
-      state = state.copyWith(clearCurrentZone: true);
-      _wasInZone = false;
-      final locationService = ref.read(locationServiceProvider);
-      locationService.wake(WakeReason.movement);
-      _relayTick(); // relay departure position
-    } else if (nowInZone) {
-      // Still inside zone — update state but don't relay.
-      state = state.copyWith(currentZone: zone);
+      _startZoneCheckTimer();
+      _registerOsGeofence(zone);
+    } else if (_wasInZone) {
+      // Check exit with hysteresis — must be clearly outside (1.2x radius).
+      final currentZone = state.currentZone;
+      final leftZone = currentZone != null &&
+          currentZone.isOutside(position.latitude, position.longitude);
+
+      if (leftZone) {
+        debugPrint('[Zones] Left zone (hysteresis) — waking GPS for departure relay');
+        _handleZoneExit();
+      } else {
+        // Still inside zone (or within hysteresis band) — update state but don't relay.
+        if (zone != null) state = state.copyWith(currentZone: zone);
+      }
     }
 
     // In IDLE/SLEEPING: relay if position changed significantly (>10m)
@@ -461,7 +495,11 @@ class LocationNotifier extends Notifier<LocationState> {
   // Relay tick (sends encrypted position to server at activity-dependent rate)
   // ---------------------------------------------------------------------------
 
-  Future<void> _relayTick() async {
+  /// Relay current position to all recipients.
+  ///
+  /// When [force] is true, bypasses zone suppression and distance checks.
+  /// Used by the zone heartbeat to ensure contacts always see a fresh position.
+  Future<void> _relayTick({bool force = false}) async {
     final position = _lastPosition;
     if (position == null) return;
 
@@ -475,7 +513,8 @@ class LocationNotifier extends Notifier<LocationState> {
 
     // Zone suppression: if inside a learned zone with high confidence,
     // skip relay (server already has zone center from the entry relay).
-    if (_wasInZone &&
+    if (!force &&
+        _wasInZone &&
         _zoneLearningService.shouldSuppressRelay(
             position.latitude, position.longitude)) {
       return;
@@ -483,7 +522,8 @@ class LocationNotifier extends Notifier<LocationState> {
 
     // In active/fast: always relay (timer already gates the frequency).
     // In idle/sleeping: only relay on significant movement.
-    if (state.activity != LocationActivity.active &&
+    if (!force &&
+        state.activity != LocationActivity.active &&
         state.activity != LocationActivity.fast &&
         _lastRelayedPosition != null) {
       final dist = _haversineDistance(
@@ -644,6 +684,95 @@ class LocationNotifier extends Notifier<LocationState> {
     }
 
     debugPrint('[Location] Flushed batch of ${batch.length} fixes');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Zone check heartbeat (10-min fallback for zone exit detection)
+  // ---------------------------------------------------------------------------
+
+  void _startZoneCheckTimer() {
+    _zoneCheckTimer?.cancel();
+    _zoneCheckTimer =
+        Timer.periodic(_zoneCheckInterval, (_) => _zoneCheckTick());
+    debugPrint(
+        '[Zones] Zone check heartbeat started (${_zoneCheckInterval.inMinutes}min)');
+  }
+
+  void _stopZoneCheckTimer() {
+    _zoneCheckTimer?.cancel();
+    _zoneCheckTimer = null;
+  }
+
+  Future<void> _zoneCheckTick() async {
+    if (!_wasInZone) return;
+
+    final locationService = ref.read(locationServiceProvider);
+    final pos = await locationService.getCurrentPosition();
+    if (pos == null) return;
+
+    debugPrint('[Zones] Zone check: '
+        '${pos.latitude.toStringAsFixed(5)},${pos.longitude.toStringAsFixed(5)}');
+
+    // Use hysteresis (1.2x radius) for exit — same as GPS-based detection.
+    final currentZone = state.currentZone;
+    final leftZone = currentZone != null &&
+        currentZone.isOutside(pos.latitude, pos.longitude);
+
+    _lastPosition = pos;
+    state = state.copyWith(myPosition: pos);
+
+    if (leftZone) {
+      debugPrint('[Zones] Zone check detected exit');
+      _handleZoneExit();
+    } else {
+      // Still in zone — force a relay so contacts see a fresh timestamp
+      // instead of a stale position from hours ago.
+      _relayTick(force: true);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Zone exit (shared by GPS-based detection, heartbeat, and OS geofence)
+  // ---------------------------------------------------------------------------
+
+  void _handleZoneExit() {
+    state = state.copyWith(clearCurrentZone: true);
+    _wasInZone = false;
+    _stopZoneCheckTimer();
+    _nativeGeofenceService.unregisterAll();
+    final locationService = ref.read(locationServiceProvider);
+    locationService.wake(WakeReason.movement);
+    _relayTick(); // relay departure position
+  }
+
+  // ---------------------------------------------------------------------------
+  // OS-level geofence (survives app sleep/kill via Android GeofencingClient)
+  // ---------------------------------------------------------------------------
+
+  void _registerOsGeofence(LearnedZone zone) {
+    // Use 1.2x radius to match the exit hysteresis — the OS should fire
+    // only after the user is clearly outside, not at the boundary.
+    _nativeGeofenceService.registerZone(
+      id: zone.id,
+      lat: zone.lat,
+      lon: zone.lon,
+      radius: zone.radius * 1.2,
+    );
+  }
+
+  void _onOsGeofenceExit(String zoneId) {
+    if (!_wasInZone) return;
+    debugPrint('[Zones] OS geofence exit for zone $zoneId — triggering exit');
+
+    // Get a fresh fix and relay it.
+    final locationService = ref.read(locationServiceProvider);
+    locationService.getCurrentPosition().then((pos) {
+      if (pos != null) {
+        _lastPosition = pos;
+        state = state.copyWith(myPosition: pos);
+      }
+      _handleZoneExit();
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -899,7 +1028,17 @@ class LocationNotifier extends Notifier<LocationState> {
 
     final locationService = ref.read(locationServiceProvider);
     locationService.wake(WakeReason.nudge);
-    debugPrint('[Location] Received nudge -- waking for fresh fix');
+    debugPrint('[Location] Received nudge — waking for fresh fix');
+
+    // Nudges must bypass zone suppression — someone is actively looking
+    // at our position and wants a fresh fix, not a stale zone center.
+    locationService.getCurrentPosition().then((pos) {
+      if (pos != null) {
+        _lastPosition = pos;
+        state = state.copyWith(myPosition: pos);
+        _relayTick(force: true);
+      }
+    });
   }
 
   void _handleLocationBroadcast(Map<String, dynamic> message) {
