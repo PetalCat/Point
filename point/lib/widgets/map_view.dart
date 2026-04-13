@@ -33,6 +33,7 @@ class MapViewState extends ConsumerState<MapView> {
   fm.MapController? _fmController;
   bool _initialFitDone = false;
   final Map<String, BitmapDescriptor> _iconCache = {};
+  double _lastDpr = 0;
   final Map<String, LatLng> _animatedPositions = {};
   final Map<String, LatLng> _targetPositions = {};
   Timer? _animationTimer;
@@ -133,6 +134,14 @@ class MapViewState extends ConsumerState<MapView> {
     final people = locationState.people;
     final myPos = locationState.myPosition;
 
+    // Render marker bitmaps at the device's physical pixel density so they
+    // stay crisp on high-DPI screens (e.g. S24 Ultra is DPR ~3.75).
+    final dpr = MediaQuery.devicePixelRatioOf(context).ceilToDouble();
+    if (dpr != _lastDpr) {
+      _lastDpr = dpr;
+      _iconCache.clear();
+    }
+
     final markers = <Marker>{};
     final allPoints = <LatLng>[];
 
@@ -149,6 +158,7 @@ class MapViewState extends ConsumerState<MapView> {
       _getCircleIcon(
         myInitial,
         const Color(0xFF1A1A1A),
+        dpr: dpr,
         isStale: false,
         online: true,
         isMe: true,
@@ -205,6 +215,7 @@ class MapViewState extends ConsumerState<MapView> {
         _getCircleIcon(
           initial,
           color,
+          dpr: dpr,
           isStale: isStale,
           online: person.online,
         ).then((icon) {
@@ -257,6 +268,7 @@ class MapViewState extends ConsumerState<MapView> {
         _getCircleIcon(
           initial,
           color,
+          dpr: dpr,
           isStale: isStale,
           online: person.online,
         ).then((icon) {
@@ -684,15 +696,17 @@ class MapViewState extends ConsumerState<MapView> {
   Future<BitmapDescriptor> _getCircleIcon(
     String initial,
     Color color, {
+    required double dpr,
     bool isStale = false,
     bool online = false,
     bool isMe = false,
   }) async {
-    final cacheKey = '$initial-${color.value}-$isStale-$online-$isMe';
+    final cacheKey = '$initial-${color.value}-$isStale-$online-$isMe-$dpr';
     if (_iconCache.containsKey(cacheKey)) return _iconCache[cacheKey]!;
 
-    // Render at 3x regardless of device DPR for consistent crisp quality
-    const renderScale = 3.0;
+    // Render at the device's physical pixel density so bitmaps aren't
+    // upscaled by Google Maps on high-DPI screens.
+    final renderScale = dpr;
     final displaySize = isMe ? 44.0 : 36.0;
     final canvasSize = displaySize * renderScale;
     final center = Offset(canvasSize / 2, canvasSize / 2);
