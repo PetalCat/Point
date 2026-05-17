@@ -2,10 +2,10 @@
 # Rebuild the APK and push to the app registry
 set -e
 
-APK_DIR="/Users/parker/Developer/GlobalMap/apk-server"
+APK_DIR="${APK_DIR:-$HOME/Developer/GlobalMap/apk-server}"
 VERSION_FILE="$APK_DIR/version.json"
-REGISTRY_HOST="10.10.10.14"
-REGISTRY_PORT="8484"
+REGISTRY_HOST="${REGISTRY_HOST:-10.10.10.14}"
+REGISTRY_PORT="${REGISTRY_PORT:-8484}"
 
 # Read current build number or start at 1
 if [ -f "$VERSION_FILE" ]; then
@@ -18,7 +18,7 @@ fi
 VERSION="0.1.$BUILD"
 DATE=$(date '+%Y-%m-%d %H:%M')
 
-cd /Users/parker/Developer/GlobalMap/point
+cd "${POINT_DIR:-$(dirname "$0")/../point}"
 
 # Sync pubspec version with build number
 sed -i '' "s/^version: .*/version: $VERSION+$BUILD/" pubspec.yaml
