@@ -163,7 +163,7 @@ class MapViewState extends ConsumerState<MapView> {
         online: true,
         isMe: true,
       ).then((icon) {
-        if (mounted && _iconCache['_me'] != icon) {
+        if (mounted && dpr == _lastDpr && _iconCache['_me'] != icon) {
           setState(() => _iconCache['_me'] = icon);
         }
       });
@@ -219,7 +219,7 @@ class MapViewState extends ConsumerState<MapView> {
           isStale: isStale,
           online: person.online,
         ).then((icon) {
-          if (mounted && _iconCache[person.userId] != icon) {
+          if (mounted && dpr == _lastDpr && _iconCache[person.userId] != icon) {
             setState(() => _iconCache[person.userId] = icon);
           }
         });
@@ -272,7 +272,7 @@ class MapViewState extends ConsumerState<MapView> {
           isStale: isStale,
           online: person.online,
         ).then((icon) {
-          if (mounted && _iconCache[person.userId] != icon) {
+          if (mounted && dpr == _lastDpr && _iconCache[person.userId] != icon) {
             setState(() => _iconCache[person.userId] = icon);
           }
         });

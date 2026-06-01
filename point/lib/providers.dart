@@ -33,7 +33,11 @@ final locationServiceProvider = Provider<LocationService>((ref) => LocationServi
 final cryptoServiceProvider = Provider<CryptoService>((ref) => CryptoService(ref.watch(apiServiceProvider)));
 final relayBufferProvider = Provider<RelayBuffer>((ref) => RelayBuffer());
 final zoneLearningServiceProvider = Provider<ZoneLearningService>((ref) => ZoneLearningService());
-final nativeGeofenceServiceProvider = Provider<NativeGeofenceService>((ref) => NativeGeofenceService());
+final nativeGeofenceServiceProvider = Provider<NativeGeofenceService>((ref) {
+  final service = NativeGeofenceService();
+  ref.onDispose(service.dispose);
+  return service;
+});
 
 // Notifier providers
 final authProvider = NotifierProvider<AuthNotifier, AuthState>(AuthNotifier.new);

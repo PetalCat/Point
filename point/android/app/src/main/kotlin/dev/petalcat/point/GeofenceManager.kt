@@ -21,7 +21,11 @@ class GeofenceManager(private val context: Context) {
         )
     }
 
-    fun registerGeofence(id: String, lat: Double, lon: Double, radius: Float) {
+    fun registerGeofence(
+        id: String, lat: Double, lon: Double, radius: Float,
+        onSuccess: (() -> Unit)? = null,
+        onFailure: ((Exception) -> Unit)? = null,
+    ) {
         val geofence = Geofence.Builder()
             .setRequestId(id)
             .setCircularRegion(lat, lon, radius)
@@ -38,12 +42,15 @@ class GeofenceManager(private val context: Context) {
             geofencingClient.addGeofences(request, geofencePendingIntent)
                 .addOnSuccessListener {
                     Log.d("GeofenceManager", "Registered geofence: $id")
+                    onSuccess?.invoke()
                 }
                 .addOnFailureListener { e ->
                     Log.e("GeofenceManager", "Failed to register geofence: $id", e)
+                    onFailure?.invoke(e)
                 }
         } catch (e: SecurityException) {
             Log.e("GeofenceManager", "Missing location permission for geofence: $id", e)
+            onFailure?.invoke(e)
         }
     }
 

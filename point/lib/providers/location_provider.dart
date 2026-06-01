@@ -213,6 +213,7 @@ class LocationNotifier extends Notifier<LocationState> {
 
   /// Whether we were inside a learned zone on the previous fix (for enter/exit detection).
   bool _wasInZone = false;
+  bool _disposed = false;
 
   final _geofenceEventsController =
       StreamController<Map<String, dynamic>>.broadcast();
@@ -252,6 +253,7 @@ class LocationNotifier extends Notifier<LocationState> {
     _fetchInitialPosition();
 
     ref.onDispose(() {
+      _disposed = true;
       _wsSubscription?.cancel();
       _positionSubscription?.cancel();
       _activitySubscription?.cancel();
@@ -318,16 +320,19 @@ class LocationNotifier extends Notifier<LocationState> {
     final now = DateTime.now();
     if (_lastCacheSave != null && now.difference(_lastCacheSave!).inSeconds < 30) return;
     _lastCacheSave = now;
+    // Capture state synchronously before any await to avoid post-dispose access.
+    final people = state.people;
+    final myPos = state.myPosition;
     try {
       final prefs = await SharedPreferences.getInstance();
       final peopleJson = <String, dynamic>{};
-      for (final entry in state.people.entries) {
+      for (final entry in people.entries) {
         peopleJson[entry.key] = entry.value.toJson();
       }
       final data = <String, dynamic>{
         'people': peopleJson,
-        if (state.myPosition != null) 'myLat': state.myPosition!.latitude,
-        if (state.myPosition != null) 'myLon': state.myPosition!.longitude,
+        if (myPos != null) 'myLat': myPos.latitude,
+        if (myPos != null) 'myLon': myPos.longitude,
       };
       await prefs.setString(_cacheKey, jsonEncode(data));
     } catch (e) {
@@ -339,8 +344,9 @@ class LocationNotifier extends Notifier<LocationState> {
     final locationService = ref.read(locationServiceProvider);
     try {
       final granted = await locationService.requestPermission();
-      if (!granted) return;
+      if (!granted || _disposed) return;
       final pos = await locationService.getCurrentPosition();
+      if (_disposed) return;
       if (pos != null) {
         _lastPosition = pos;
         state = state.copyWith(myPosition: pos);
@@ -422,6 +428,7 @@ class LocationNotifier extends Notifier<LocationState> {
       if (leftZone) {
         debugPrint('[Zones] Left zone (hysteresis) — waking GPS for departure relay');
         _handleZoneExit();
+        return;
       } else {
         // Still inside zone (or within hysteresis band) — update state but don't relay.
         if (zone != null) state = state.copyWith(currentZone: zone);
@@ -708,7 +715,7 @@ class LocationNotifier extends Notifier<LocationState> {
 
     final locationService = ref.read(locationServiceProvider);
     final pos = await locationService.getCurrentPosition();
-    if (pos == null) return;
+    if (pos == null || !_wasInZone) return;
 
     debugPrint('[Zones] Zone check: '
         '${pos.latitude.toStringAsFixed(5)},${pos.longitude.toStringAsFixed(5)}');
@@ -725,9 +732,7 @@ class LocationNotifier extends Notifier<LocationState> {
       debugPrint('[Zones] Zone check detected exit');
       _handleZoneExit();
     } else {
-      // Still in zone — force a relay so contacts see a fresh timestamp
-      // instead of a stale position from hours ago.
-      _relayTick(force: true);
+      _relayTick();
     }
   }
 
@@ -736,6 +741,7 @@ class LocationNotifier extends Notifier<LocationState> {
   // ---------------------------------------------------------------------------
 
   void _handleZoneExit() {
+    if (!_wasInZone) return;
     state = state.copyWith(clearCurrentZone: true);
     _wasInZone = false;
     _stopZoneCheckTimer();
@@ -767,6 +773,7 @@ class LocationNotifier extends Notifier<LocationState> {
     // Get a fresh fix and relay it.
     final locationService = ref.read(locationServiceProvider);
     locationService.getCurrentPosition().then((pos) {
+      if (!_wasInZone) return;
       if (pos != null) {
         _lastPosition = pos;
         state = state.copyWith(myPosition: pos);
@@ -842,6 +849,8 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   void setPlaces(List<Map<String, dynamic>> places) {
+    _insidePlaces.clear();
+    _personInsidePlaces.clear();
     state = state.copyWith(places: List.from(places));
   }
 
@@ -1033,6 +1042,7 @@ class LocationNotifier extends Notifier<LocationState> {
     // Nudges must bypass zone suppression — someone is actively looking
     // at our position and wants a fresh fix, not a stale zone center.
     locationService.getCurrentPosition().then((pos) {
+      if (_disposed) return;
       if (pos != null) {
         _lastPosition = pos;
         state = state.copyWith(myPosition: pos);

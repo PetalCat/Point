@@ -23,8 +23,10 @@ class MainActivity : FlutterActivity() {
                     val lat = call.argument<Double>("lat")!!
                     val lon = call.argument<Double>("lon")!!
                     val radius = call.argument<Double>("radius")!!
-                    geofenceManager.registerGeofence(id, lat, lon, radius.toFloat())
-                    result.success(null)
+                    geofenceManager.registerGeofence(id, lat, lon, radius.toFloat(),
+                        onSuccess = { result.success(null) },
+                        onFailure = { e -> result.error("GEOFENCE_ERROR", e.message, null) }
+                    )
                 }
                 "unregisterGeofence" -> {
                     val id = call.argument<String>("id")!!
@@ -43,12 +45,16 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             "dev.petalcat.point/geofence_events"
         ).setStreamHandler(object : EventChannel.StreamHandler {
+            var sinkActive = false
+
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
+                sinkActive = true
                 GeofenceBroadcastReceiver.eventSink = { event ->
-                    runOnUiThread { events.success(event) }
+                    runOnUiThread { if (sinkActive) events.success(event) }
                 }
             }
             override fun onCancel(arguments: Any?) {
+                sinkActive = false
                 GeofenceBroadcastReceiver.eventSink = null
             }
         })
