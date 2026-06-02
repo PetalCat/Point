@@ -28,6 +28,7 @@ final removeShareMutation = Mutation<void>(label: 'removeShare');
 final createTempShareMutation = Mutation<Map<String, dynamic>>(label: 'createTempShare');
 final acceptZoneConsentMutation = Mutation<void>(label: 'acceptZoneConsent');
 final rejectZoneConsentMutation = Mutation<void>(label: 'rejectZoneConsent');
+final deleteTempShareMutation = Mutation<void>(label: 'deleteTempShare');
 
 // Item mutations
 final createItemMutation = Mutation<Item?>(label: 'createItem');

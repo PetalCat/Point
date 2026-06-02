@@ -61,6 +61,13 @@ class _SharingTabState extends ConsumerState<SharingTab> {
         );
       }
     });
+    ref.listen(deleteTempShareMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to stop temporary share')),
+        );
+      }
+    });
 
     return RefreshIndicator(
       color: PointColors.accent,
@@ -219,7 +226,25 @@ class _SharingTabState extends ConsumerState<SharingTab> {
               ),
             ...sharing.shares.map((s) => _buildPersonShareRow(s, sharing)),
           ],
-          if (sharing.shares.isEmpty && _sharingFilter == 1)
+          if (sharing.tempShares.isNotEmpty) ...[
+            if (_sharingFilter == 0 && sharing.shares.isNotEmpty)
+              const SizedBox(height: 10),
+            if (_sharingFilter == 0)
+              const Padding(
+                padding: EdgeInsets.only(bottom: 8, left: 2),
+                child: Text(
+                  'TEMPORARY',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.5,
+                    color: PointColors.textTertiary,
+                  ),
+                ),
+              ),
+            ...sharing.tempShares.map((s) => _buildTempShareRow(s)),
+          ],
+          if (sharing.shares.isEmpty && sharing.tempShares.isEmpty && _sharingFilter == 1)
             _buildEmptyState(Icons.person_outline, 'No people sharing yet'),
         ],
         if (_sharingFilter == 0 || _sharingFilter == 2) ...[
@@ -383,6 +408,7 @@ class _SharingTabState extends ConsumerState<SharingTab> {
         ],
         if (_sharingFilter == 0 &&
             sharing.shares.isEmpty &&
+            sharing.tempShares.isEmpty &&
             groups.groups.isEmpty &&
             sharing.incomingRequests.isEmpty &&
             sharing.outgoingRequests.isEmpty &&
@@ -865,6 +891,117 @@ class _SharingTabState extends ConsumerState<SharingTab> {
                 fontSize: 10,
                 fontWeight: FontWeight.w800,
                 color: Color(0xFFFF9800),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTempShareRow(Map<String, dynamic> share) {
+    final shareId = share['id'] as String? ?? '';
+    final toUserId = share['to_user_id'] as String? ?? '';
+    final name = toUserId.split('@').first;
+    final expiresAt = share['expires_at'] as String?;
+    final deleteState = ref.watch(deleteTempShareMutation(shareId));
+
+    String expiryLabel = '';
+    if (expiresAt != null) {
+      try {
+        final expiry = DateTime.parse(expiresAt);
+        final diff = expiry.difference(DateTime.now());
+        if (diff.inMinutes < 60) {
+          expiryLabel = '${diff.inMinutes}m left';
+        } else if (diff.inHours < 24) {
+          expiryLabel = '${diff.inHours}h left';
+        } else {
+          expiryLabel = '${diff.inDays}d left';
+        }
+      } catch (_) {}
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 38,
+            height: 38,
+            decoration: BoxDecoration(
+              color: PointColors.colorForUser(toUserId),
+              shape: BoxShape.circle,
+            ),
+            child: Center(
+              child: Text(
+                name.isNotEmpty ? name[0].toUpperCase() : '?',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w900,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name,
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w800,
+                    color: context.primaryText,
+                  ),
+                ),
+                if (expiryLabel.isNotEmpty)
+                  Text(
+                    expiryLabel,
+                    style: TextStyle(fontSize: 11, color: context.secondaryText),
+                  ),
+              ],
+            ),
+          ),
+          Material(
+            color: Colors.transparent,
+            child: InkWell(
+              onTap: deleteState.isPending
+                  ? null
+                  : () {
+                      deleteTempShareMutation(shareId).run(ref, (tsx) async {
+                        await tsx
+                            .get(sharingProvider.notifier)
+                            .deleteTempShare(shareId);
+                      });
+                    },
+              borderRadius: BorderRadius.circular(10),
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                decoration: BoxDecoration(
+                  color: PointColors.danger.withValues(alpha: 0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: deleteState.isPending
+                    ? const SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Text(
+                        'Stop',
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          color: PointColors.danger,
+                        ),
+                      ),
               ),
             ),
           ),

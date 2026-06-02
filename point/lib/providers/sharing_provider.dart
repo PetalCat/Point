@@ -10,6 +10,7 @@ class SharingState {
   final List<Map<String, dynamic>> incomingRequests;
   final List<Map<String, dynamic>> outgoingRequests;
   final List<Map<String, dynamic>> incomingZoneConsents;
+  final List<Map<String, dynamic>> tempShares;
   final bool loading;
   final String? myUserId;
 
@@ -18,6 +19,7 @@ class SharingState {
     this.incomingRequests = const [],
     this.outgoingRequests = const [],
     this.incomingZoneConsents = const [],
+    this.tempShares = const [],
     this.loading = false,
     this.myUserId,
   });
@@ -29,6 +31,7 @@ class SharingState {
     List<Map<String, dynamic>>? incomingRequests,
     List<Map<String, dynamic>>? outgoingRequests,
     List<Map<String, dynamic>>? incomingZoneConsents,
+    List<Map<String, dynamic>>? tempShares,
     bool? loading,
     String? myUserId,
   }) {
@@ -37,6 +40,7 @@ class SharingState {
       incomingRequests: incomingRequests ?? this.incomingRequests,
       outgoingRequests: outgoingRequests ?? this.outgoingRequests,
       incomingZoneConsents: incomingZoneConsents ?? this.incomingZoneConsents,
+      tempShares: tempShares ?? this.tempShares,
       loading: loading ?? this.loading,
       myUserId: myUserId ?? this.myUserId,
     );
@@ -107,16 +111,32 @@ class SharingNotifier extends Notifier<SharingState> {
       try {
         zoneConsents = await api.listIncomingZoneConsents();
       } catch (_) {}
+      List<Map<String, dynamic>> tempShares = [];
+      try {
+        tempShares = await api.listTempShares();
+      } catch (_) {}
       state = state.copyWith(
         shares: shares,
         incomingRequests: incoming,
         outgoingRequests: outgoing,
         incomingZoneConsents: zoneConsents,
+        tempShares: tempShares,
         loading: false,
       );
     } catch (e) {
       debugPrint('SharingNotifier error: $e');
       state = state.copyWith(loading: false);
+    }
+  }
+
+  Future<void> deleteTempShare(String id) async {
+    final api = ref.read(apiServiceProvider);
+    try {
+      await api.deleteTempShare(id);
+      await loadAll();
+    } catch (e) {
+      debugPrint('SharingNotifier error: $e');
+      rethrow;
     }
   }
 
