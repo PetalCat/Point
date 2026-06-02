@@ -431,9 +431,9 @@ class LocationService {
 
   LocationSettings _buildSettings(Duration interval) {
     if (Platform.isAndroid) {
-      // Only show foreground notification for ACTIVE/FAST
-      final showNotification = _activity == LocationActivity.active ||
-          _activity == LocationActivity.fast;
+      // Keep the foreground service alive whenever shares are active —
+      // this is what prevents Android from killing the process when still.
+      final showNotification = hasActiveShares;
 
       // Sleeping + background = passive mode with large filter (low power)
       final isSleepingBackground = _activity == LocationActivity.sleeping && _isBackgrounded;
@@ -448,7 +448,7 @@ class LocationService {
         foregroundNotificationConfig: showNotification
             ? const ForegroundNotificationConfig(
                 notificationTitle: 'Point',
-                notificationText: 'Sharing your location',
+                notificationText: 'Location sharing active',
                 enableWakeLock: true,
               )
             : null,
