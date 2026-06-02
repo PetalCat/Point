@@ -110,6 +110,7 @@ class LocationState {
   final Set<String> zoneConsentedUsers;
   final LocationActivity activity;
   final LearnedZone? currentZone;
+  final bool permissionDenied;
 
   /// Derived: sharing is active when the activity state implies relay.
   bool get isSharing =>
@@ -130,6 +131,7 @@ class LocationState {
     this.zoneConsentedUsers = const {},
     this.activity = LocationActivity.sleeping,
     this.currentZone,
+    this.permissionDenied = false,
   });
 
   LocationState copyWith({
@@ -146,6 +148,7 @@ class LocationState {
     Set<String>? zoneConsentedUsers,
     LocationActivity? activity,
     LearnedZone? currentZone,
+    bool? permissionDenied,
     bool clearViewingUserId = false,
     bool clearMyPosition = false,
     bool clearCurrentZone = false,
@@ -165,6 +168,7 @@ class LocationState {
       zoneConsentedUsers: zoneConsentedUsers ?? this.zoneConsentedUsers,
       activity: activity ?? this.activity,
       currentZone: clearCurrentZone ? null : (currentZone ?? this.currentZone),
+      permissionDenied: permissionDenied ?? this.permissionDenied,
     );
   }
 }
@@ -344,7 +348,11 @@ class LocationNotifier extends Notifier<LocationState> {
     final locationService = ref.read(locationServiceProvider);
     try {
       final granted = await locationService.requestPermission();
-      if (!granted || _disposed) return;
+      if (_disposed) return;
+      if (!granted) {
+        state = state.copyWith(permissionDenied: true);
+        return;
+      }
       final pos = await locationService.getCurrentPosition();
       if (_disposed) return;
       if (pos != null) {
@@ -412,10 +420,15 @@ class LocationNotifier extends Notifier<LocationState> {
     final nowInZone = zone != null && zone.confidence >= 50;
 
     if (nowInZone && !_wasInZone) {
-      // Just entered a zone — relay zone center once, then suppress.
-      debugPrint('[Zones] Entered "${zone!.displayName}" — relaying zone center, then suppressing');
+      // Just entered a zone — relay zone CENTER (not exact GPS) once, then suppress.
+      debugPrint('[Zones] Entered "${zone.displayName}" — relaying zone center, then suppressing');
       state = state.copyWith(currentZone: zone);
-      _relayTick(); // one last relay with current position
+      // Temporarily substitute zone center so _relayTick doesn't leak exact position.
+      // _relayTick captures _lastPosition synchronously before its first await.
+      final savedPosition = _lastPosition;
+      _lastPosition = _syntheticPosition(zone.lat, zone.lon, position);
+      _relayTick(force: true);
+      _lastPosition = savedPosition;
       _wasInZone = true;
       _startZoneCheckTimer();
       _registerOsGeofence(zone);
@@ -1311,4 +1324,21 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   static double _toRadians(double degrees) => degrees * math.pi / 180;
+
+  /// Build a Position at [lat]/[lon] inheriting metadata from [template].
+  /// Used to relay zone center instead of exact GPS on zone entry.
+  static Position _syntheticPosition(double lat, double lon, Position template) {
+    return Position(
+      latitude: lat,
+      longitude: lon,
+      timestamp: template.timestamp,
+      accuracy: template.accuracy,
+      altitude: template.altitude,
+      altitudeAccuracy: template.altitudeAccuracy,
+      heading: template.heading,
+      headingAccuracy: template.headingAccuracy,
+      speed: 0,
+      speedAccuracy: template.speedAccuracy,
+    );
+  }
 }

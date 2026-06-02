@@ -621,6 +621,16 @@ class _GroupDetailScreenState extends ConsumerState<GroupDetailScreen> {
         scheduleType: scheduleType,
       );
       await _loadGroup();
+      // Re-sync relay targets so toggling sharing off stops GPS broadcast immediately.
+      if (sharing != null) {
+        final myId = ref.read(authProvider).userId ?? '';
+        final groups = ref.read(groupProvider).groups;
+        final sharingIds = groups
+            .where((g) => g.members.any((m) => m.userId == myId && m.sharing))
+            .map((g) => g.id)
+            .toList();
+        ref.read(locationProvider.notifier).setActiveGroups(sharingIds);
+      }
     } catch (e) {
       if (mounted)
         ScaffoldMessenger.of(

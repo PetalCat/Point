@@ -3,6 +3,7 @@ import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../config.dart';
@@ -27,7 +28,7 @@ class HomeScreen extends ConsumerStatefulWidget {
   ConsumerState<HomeScreen> createState() => _HomeScreenState();
 }
 
-class _HomeScreenState extends ConsumerState<HomeScreen> {
+class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObserver {
   FilterMode _filterMode = FilterMode.all;
   int _currentTab = 0;
   bool _showTrails = true;
@@ -40,7 +41,21 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) => _initServices());
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState lifecycleState) {
+    final locationService = ref.read(locationServiceProvider);
+    final locationNotifier = ref.read(locationProvider.notifier);
+    if (lifecycleState == AppLifecycleState.resumed) {
+      locationService.appOpened();
+      locationNotifier.setBackgrounded(false);
+    } else if (lifecycleState == AppLifecycleState.paused) {
+      locationService.appBackgrounded();
+      locationNotifier.setBackgrounded(true);
+    }
   }
 
   Future<void> _initServices() async {
@@ -92,7 +107,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
 
     await groupNotifier.loadGroups();
     final groups = ref.read(groupProvider);
-    locationNotifier.setActiveGroups(groups.groups.map((g) => g.id).toList());
+    final myId = auth.userId ?? '';
+    locationNotifier.setActiveGroups(_sharingGroupIds(groups.groups, myId));
 
     // Set up MLS encryption for all groups
     await groupNotifier.setupEncryptionForAllGroups(auth.userId ?? '');
@@ -157,8 +173,17 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
     if (mounted) setState(() => _servicesReady = true);
   }
 
+  /// Groups where the current user has sharing enabled.
+  static List<String> _sharingGroupIds(List<dynamic> groups, String myId) {
+    return groups
+        .where((g) => g.members.any((m) => m.userId == myId && m.sharing))
+        .map<String>((g) => g.id as String)
+        .toList();
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _geofenceSubscription?.cancel();
     super.dispose();
   }
@@ -186,6 +211,35 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                 _buildTabBar(),
               ],
             ),
+            if (ref.watch(locationProvider.select((s) => s.permissionDenied)))
+              Positioned(
+                bottom: 72,
+                left: 16,
+                right: 16,
+                child: Material(
+                  borderRadius: BorderRadius.circular(12),
+                  color: const Color(0xFFFF3B30),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () => Geolocator.openAppSettings(),
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                      child: Row(
+                        children: [
+                          Icon(Icons.location_off_rounded, color: Colors.white, size: 18),
+                          SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              'Location permission required — tap to open Settings',
+                              style: TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             if (!_servicesReady)
               Positioned.fill(
                 child: Container(
