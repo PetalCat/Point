@@ -217,6 +217,7 @@ class MapViewState extends ConsumerState<MapView> {
           color,
           dpr: dpr,
           isStale: isStale,
+          timestamp: person.timestamp,
           online: person.online,
         ).then((icon) {
           if (mounted && dpr == _lastDpr && _iconCache[person.userId] != icon) {
@@ -270,6 +271,7 @@ class MapViewState extends ConsumerState<MapView> {
           color,
           dpr: dpr,
           isStale: isStale,
+          timestamp: person.timestamp,
           online: person.online,
         ).then((icon) {
           if (mounted && dpr == _lastDpr && _iconCache[person.userId] != icon) {
@@ -538,10 +540,11 @@ class MapViewState extends ConsumerState<MapView> {
       final isStale =
           (DateTime.now().millisecondsSinceEpoch ~/ 1000 - person.timestamp) > 7200;
 
+      final timeLabel = isStale ? MapViewState._timeLabel(person.timestamp) : null;
       fmMarkers.add(fm.Marker(
         point: ll.LatLng(pos.latitude, pos.longitude),
         width: 36,
-        height: 36,
+        height: timeLabel != null ? 49.0 : 36,
         child: GestureDetector(
           onTap: () => widget.onPersonTap?.call(person.userId),
           child: _FlutterMapCircleMarker(
@@ -550,6 +553,7 @@ class MapViewState extends ConsumerState<MapView> {
             isMe: false,
             isStale: isStale,
             online: person.online,
+            timeLabel: timeLabel,
           ),
         ),
       ));
@@ -693,22 +697,37 @@ class MapViewState extends ConsumerState<MapView> {
     }
   }
 
+  static String? _timeLabel(int? timestamp) {
+    if (timestamp == null || timestamp == 0) return null;
+    final epochSec = timestamp > 9999999999 ? timestamp ~/ 1000 : timestamp;
+    final secAgo = DateTime.now().millisecondsSinceEpoch ~/ 1000 - epochSec;
+    if (secAgo < 60) return 'just now';
+    if (secAgo < 3600) return '${secAgo ~/ 60}m ago';
+    if (secAgo < 86400) return '${secAgo ~/ 3600}h ago';
+    return '${secAgo ~/ 86400}d ago';
+  }
+
   Future<BitmapDescriptor> _getCircleIcon(
     String initial,
     Color color, {
     required double dpr,
     bool isStale = false,
+    int? timestamp,
     bool online = false,
     bool isMe = false,
   }) async {
-    final cacheKey = '$initial-${color.value}-$isStale-$online-$isMe-$dpr';
+    final label = isStale ? _timeLabel(timestamp) : null;
+    final cacheKey = '$initial-${color.toARGB32()}-$isStale-$online-$isMe-$dpr-${label ?? ''}';
     if (_iconCache.containsKey(cacheKey)) return _iconCache[cacheKey]!;
 
     // Render at the device's physical pixel density so bitmaps aren't
     // upscaled by Google Maps on high-DPI screens.
     final renderScale = dpr;
     final displaySize = isMe ? 44.0 : 36.0;
+    const labelDisplayHeight = 13.0; // extra height below circle for "2h ago" text
+    final totalDisplayHeight = label != null ? displaySize + labelDisplayHeight : displaySize;
     final canvasSize = displaySize * renderScale;
+    final canvasHeight = totalDisplayHeight * renderScale;
     final center = Offset(canvasSize / 2, canvasSize / 2);
     final borderWidth = (isMe ? 2.5 : 2.0) * renderScale;
     final radius = canvasSize / 2 - (2 * renderScale);
@@ -824,16 +843,34 @@ class MapViewState extends ConsumerState<MapView> {
       );
     }
 
+    // Last-seen label below circle (stale markers only)
+    if (label != null) {
+      final labelFontSize = 8.0 * renderScale;
+      final labelPb = ui.ParagraphBuilder(ui.ParagraphStyle(
+        textAlign: TextAlign.center,
+        fontSize: labelFontSize,
+      ))
+        ..pushStyle(ui.TextStyle(
+          color: Colors.white.withValues(alpha: 0.65),
+          fontSize: labelFontSize,
+          fontWeight: FontWeight.w600,
+        ))
+        ..addText(label);
+      final labelParagraph = labelPb.build()
+        ..layout(ui.ParagraphConstraints(width: canvasSize));
+      canvas.drawParagraph(labelParagraph, Offset(0, canvasSize + 1.5 * renderScale));
+    }
+
     final image = await recorder.endRecording().toImage(
       canvasSize.toInt(),
-      canvasSize.toInt(),
+      canvasHeight.toInt(),
     );
     final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
 
     final descriptor = BitmapDescriptor.bytes(
       bytes!.buffer.asUint8List(),
       width: displaySize,
-      height: displaySize,
+      height: totalDisplayHeight,
     );
     _iconCache[cacheKey] = descriptor;
     return descriptor;
@@ -943,6 +980,7 @@ class _FlutterMapCircleMarker extends StatelessWidget {
   final bool isMe;
   final bool isStale;
   final bool online;
+  final String? timeLabel;
 
   const _FlutterMapCircleMarker({
     required this.initial,
@@ -950,6 +988,7 @@ class _FlutterMapCircleMarker extends StatelessWidget {
     required this.isMe,
     required this.isStale,
     required this.online,
+    this.timeLabel,
   });
 
   @override
@@ -960,7 +999,10 @@ class _FlutterMapCircleMarker extends StatelessWidget {
     final highlightColor =
         Color.lerp(color, Colors.white, 0.15)!.withValues(alpha: opacity);
 
-    return SizedBox(
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+      SizedBox(
       width: size,
       height: size,
       child: Stack(
@@ -1030,6 +1072,19 @@ class _FlutterMapCircleMarker extends StatelessWidget {
             ),
         ],
       ),
+      ),
+      if (timeLabel != null)
+        Text(
+          timeLabel!,
+          style: const TextStyle(
+            fontSize: 9,
+            fontWeight: FontWeight.w600,
+            color: Colors.white70,
+            height: 1.2,
+          ),
+          textAlign: TextAlign.center,
+        ),
+      ],
     );
   }
 }

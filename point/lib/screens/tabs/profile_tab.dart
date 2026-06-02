@@ -261,6 +261,9 @@ class ProfileTab extends ConsumerWidget {
           ),
         ),
 
+        // Learned zones
+        const _ZonesSection(),
+
         // Sign out
         Material(
           color: Colors.transparent,
@@ -896,5 +899,175 @@ class ProfileTab extends ConsumerWidget {
         ).showSnackBar(SnackBar(content: Text('$e')));
       }
     }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Learned zones section — managed zones with rename/delete
+// ---------------------------------------------------------------------------
+
+class _ZonesSection extends ConsumerStatefulWidget {
+  const _ZonesSection();
+
+  @override
+  ConsumerState<_ZonesSection> createState() => _ZonesSectionState();
+}
+
+class _ZonesSectionState extends ConsumerState<_ZonesSection> {
+  String _formatLastVisit(DateTime dt) {
+    final diff = DateTime.now().difference(dt);
+    if (diff.inDays > 0) return '${diff.inDays}d ago';
+    if (diff.inHours > 0) return '${diff.inHours}h ago';
+    return '${diff.inMinutes}m ago';
+  }
+
+  Color _confidenceColor(int confidence) {
+    if (confidence >= 70) return PointColors.online;
+    if (confidence >= 40) return const Color(0xFFFFB700);
+    return PointColors.danger;
+  }
+
+  void _renameZone(BuildContext context, ZoneLearningService service, LearnedZone zone) {
+    final ctrl = TextEditingController(text: zone.userLabel ?? '');
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Rename Zone'),
+        content: TextField(
+          controller: ctrl,
+          autofocus: true,
+          decoration: InputDecoration(
+            hintText: zone.displayName,
+            border: const OutlineInputBorder(),
+          ),
+          onSubmitted: (_) => _commitRename(ctx, service, zone, ctrl.text),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => _commitRename(ctx, service, zone, ctrl.text),
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _commitRename(BuildContext ctx, ZoneLearningService service, LearnedZone zone, String text) {
+    final trimmed = text.trim();
+    service.labelZone(zone.id, trimmed.isEmpty ? '' : trimmed);
+    Navigator.pop(ctx);
+    setState(() {});
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final service = ref.read(zoneLearningServiceProvider);
+    final zones = service.zones;
+
+    if (zones.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(18, 20, 18, 8),
+          child: Text(
+            'LEARNED ZONES',
+            style: TextStyle(
+              fontSize: 10,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 1.5,
+              color: context.tertiaryText,
+            ),
+          ),
+        ),
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 14),
+          decoration: BoxDecoration(
+            color: context.cardBg,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Column(
+            children: [
+              for (int i = 0; i < zones.length; i++) ...[
+                if (i > 0)
+                  Divider(height: 1, color: context.dividerClr, indent: 56, endIndent: 16),
+                InkWell(
+                  onTap: () => _renameZone(context, service, zones[i]),
+                  borderRadius: i == 0
+                      ? const BorderRadius.vertical(top: Radius.circular(18))
+                      : i == zones.length - 1
+                          ? const BorderRadius.vertical(bottom: Radius.circular(18))
+                          : BorderRadius.zero,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 32,
+                          height: 32,
+                          decoration: BoxDecoration(
+                            color: PointColors.accent.withValues(alpha: 0.1),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.my_location_rounded, size: 16, color: PointColors.accent),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                zones[i].displayName,
+                                style: TextStyle(
+                                  fontSize: 14,
+                                  fontWeight: FontWeight.w600,
+                                  color: context.primaryText,
+                                ),
+                              ),
+                              Text(
+                                '${zones[i].radius.toInt()}m · last ${_formatLastVisit(zones[i].lastVisit)}',
+                                style: TextStyle(fontSize: 11, color: context.secondaryText),
+                              ),
+                            ],
+                          ),
+                        ),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                            color: _confidenceColor(zones[i].confidence).withValues(alpha: 0.1),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Text(
+                            '${zones[i].confidence}%',
+                            style: TextStyle(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                              color: _confidenceColor(zones[i].confidence),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        GestureDetector(
+                          onTap: () {
+                            service.deleteZone(zones[i].id);
+                            setState(() {});
+                          },
+                          child: Icon(Icons.delete_outline_rounded, size: 18, color: context.tertiaryText),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ],
+    );
   }
 }
