@@ -74,6 +74,7 @@ dev_dependencies:
   integration_test:
     sdk: flutter
   riverpod_lint: ^3.0.0-dev.4
+  custom_lint: ^0.5.11
 
 flutter_launcher_icons:
   android: true

@@ -1,7 +1,8 @@
 include: package:flutter_lints/flutter.yaml
 
-plugins:
-  - riverpod_lint
+analyzer:
+  plugins:
+    - custom_lint
 
 linter:
   rules:
