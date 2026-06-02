@@ -162,9 +162,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       sharingNotifier.listenToWs(ws);
       await sharingNotifier.loadAll();
       if (mounted) {
-        final shares = ref.read(sharingProvider).shares;
-        final userIds = shares.map((s) => s['user_id'] as String).toList();
-        locationNotifier.setActiveUserIds(userIds);
+        final sharingState = ref.read(sharingProvider);
+        final permanentIds = sharingState.shares
+            .map((s) => s['user_id'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        // Temp share recipients need relay too — add their user IDs and set up MLS.
+        final tempIds = sharingState.tempShares
+            .map((s) => s['to_user_id'] as String? ?? '')
+            .where((s) => s.isNotEmpty)
+            .toList();
+        locationNotifier.setActiveUserIds([...permanentIds, ...tempIds]);
+        // Establish MLS pairwise groups for temp share recipients.
+        final myId = auth.userId ?? '';
+        if (myId.isNotEmpty) {
+          final crypto = ref.read(cryptoServiceProvider);
+          for (final uid in tempIds) {
+            try {
+              await crypto.setupDirectShare(myId, uid);
+            } catch (e) {
+              debugPrint('[TempShare] MLS setup failed for $uid: $e');
+            }
+          }
+        }
       }
     }
 

@@ -33,18 +33,18 @@
 			{
 				label: 'Security',
 				title: 'End-to-End Encryption',
-				desc: 'Native sharing is fully end-to-end encrypted using MLS (RFC 9420) with X25519 key exchange, ChaCha20-Poly1305 encryption, and Ed25519 signatures. The server is zero-knowledge. Bridges encrypt at the edge — your bridge runs on YOUR infrastructure, not ours, so the server never sees plaintext. Post-quantum upgrade path via XWing (X25519 + ML-KEM hybrid) is ready when the ecosystem aligns.',
+				desc: 'Native sharing uses MLS (RFC 9420) with X25519 key exchange, ChaCha20-Poly1305 encryption, and Ed25519 signatures. Location data is encrypted before leaving your device — the relay server handles ciphertext only. Zero-knowledge place definitions and durable MLS key storage are in active development.',
 				color: '#00FF88',
 				icon: '🔐',
-				details: ['Zero-knowledge server architecture', 'MLS protocol (RFC 9420) with X25519 + ChaCha20-Poly1305', 'Bridge encrypts on your hardware before reaching the server', 'Open source on GitHub']
+				details: ['MLS protocol (RFC 9420) with X25519 + ChaCha20-Poly1305', 'Server handles ciphertext only for location data', 'Open source on GitHub', 'Zero-knowledge place storage: in development']
 			},
 			{
 				label: 'Boundaries',
 				title: 'Geofencing',
-				desc: 'Draw circles or complex polygons on the map to create geofences. Get instant push notifications when someone arrives at or leaves a zone. Perfect for knowing when your partner gets home, when kids arrive at school, or when your delivery driver is close.',
+				desc: 'Draw circles or complex polygons on the map to create geofences. Enter/exit events are tracked and logged. Push notification delivery for geofence alerts is in development.',
 				color: '#FF6B35',
 				icon: '📐',
-				details: ['Circle & polygon geofences', 'Arrive & leave notifications', 'Per-person geofence alerts', 'No limit on active geofences']
+				details: ['Circle & polygon geofences', 'Enter/exit event tracking', 'Per-group and personal geofences', 'Push notifications: in development']
 			},
 			{
 				label: 'Control',
@@ -65,10 +65,10 @@
 			{
 				label: 'Social',
 				title: 'Groups & Sharing',
-				desc: 'Create groups for family, friends, coworkers. Share 1:1 with anyone. Create temporary share links that auto-expire after a set time. Role management lets you control who can see what within each group.',
+				desc: 'Create groups for family, friends, coworkers. Share 1:1 with anyone. Create temporary shares that auto-expire after a set time. Role management lets you control who can see what within each group.',
 				color: '#00D4FF',
 				icon: '👥',
-				details: ['Unlimited groups', '1:1 direct sharing', 'Temporary share links', 'Role-based permissions']
+				details: ['Unlimited groups', '1:1 direct sharing', 'Temporary sharing with expiry', 'Role-based permissions']
 			}
 		] as feature, i}
 			<div class="feature-deep" class:reverse={i % 2 === 1} use:reveal>

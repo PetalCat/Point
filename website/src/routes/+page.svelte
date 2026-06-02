@@ -5,7 +5,7 @@
 
 <svelte:head>
 	<title>Point — Privacy-First Location Sharing</title>
-	<meta name="description" content="Beeper for location. Unify all your location sharing — Find My, Google Maps, Life360, and more — into one encrypted, self-hostable app." />
+	<meta name="description" content="Privacy-first, self-hostable location sharing. End-to-end encrypted via MLS. No third-party cloud required." />
 	<meta property="og:title" content="Point — Privacy-First Location Sharing" />
 	<meta property="og:description" content="Unify all your location sharing into one encrypted, self-hostable app." />
 	<meta property="og:type" content="website" />
@@ -25,8 +25,8 @@
 			<span class="gradient-text">One map.</span>
 		</h1>
 		<p class="hero-sub" use:reveal={{ delay: 200 }}>
-			See everyone in one place. Bridge Find My, Google Maps, Life360, and more
-			into a single encrypted app you control. End-to-end encrypted. Self-hostable. Open source.
+			Self-hosted, end-to-end encrypted location sharing. Your server, your data, your rules.
+			Bridges for Find My, Google Maps, and more are in development.
 		</p>
 		<div class="hero-actions" use:reveal={{ delay: 300 }}>
 			<a href="https://app.petalcat.dev" class="btn-primary" target="_blank" rel="noopener">
@@ -79,8 +79,8 @@
 		<div class="features-grid">
 			{#each [
 				{ title: 'Real-time Location', desc: 'See everyone on a live map with smooth position updates. Battery level and speed included.', icon: '⚡', color: '#FFD600' },
-				{ title: 'E2E Encrypted', desc: 'Your location is encrypted on your device and only readable by the people you choose. The server never sees your data — not even the admin.', icon: '🔒', color: '#00FF88' },
-				{ title: 'Geofencing', desc: 'Circle and polygon geofences with instant push notifications when people arrive or leave.', icon: '📐', color: '#3F51FF' },
+				{ title: 'E2E Encrypted', desc: 'Location data is encrypted via MLS before leaving your device. Only your recipients can decrypt it — the relay server handles ciphertext only.', icon: '🔒', color: '#00FF88' },
+				{ title: 'Geofencing', desc: 'Circle and polygon geofences with enter/exit event tracking. Push notification delivery for geofence alerts is in development.', icon: '📐', color: '#3F51FF' },
 				{ title: 'Ghost Mode', desc: 'Go invisible instantly. Pause all sharing with one tap. No one knows you went dark.', icon: '👻', color: '#B44DFF' },
 				{ title: 'Trail History', desc: 'Heatmap history shows where people have been. Beautiful visualizations of movement patterns.', icon: '🗺️', color: '#FF6B35' },
 				{ title: 'Groups & 1:1', desc: 'Share with groups, individuals, or create temporary shares that auto-expire.', icon: '👥', color: '#FF3B8B' },
@@ -107,9 +107,9 @@
 				<h2 class="section-label" style="color: #00FF88">Privacy-First</h2>
 				<h3 class="section-title" style="max-width: 600px">Your location is <span class="gradient-text">yours</span>.</h3>
 				<p class="section-desc" style="max-width: 500px">
-					Point is built on zero-trust principles. Native sharing uses end-to-end encryption
-					so not even the server can see where you are. Bridges encrypt at the edge on your
-					hardware — the server stays zero-knowledge. Self-host for complete control.
+					Point uses MLS (RFC 9420) end-to-end encryption for location data —
+					the relay server handles ciphertext only. Self-host for complete control.
+					Bridge support and zero-knowledge place definitions are in active development.
 				</p>
 				<a href="/privacy" class="btn-primary" style="margin-top: 1.5rem;">
 					Learn About Our Privacy

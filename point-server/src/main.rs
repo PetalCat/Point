@@ -27,6 +27,13 @@ async fn main() {
         .jwt_secret
         .clone()
         .expect("JWT_SECRET must be set — refusing to start with no secret. Set JWT_SECRET env var.");
+    if jwt_secret.len() < 32 {
+        panic!(
+            "JWT_SECRET is too short ({} chars). Minimum 32 characters required. \
+             Generate one with: openssl rand -hex 32",
+            jwt_secret.len()
+        );
+    }
 
     let hub = ws::hub::Hub::new();
     let fcm = fcm::FcmService::load("firebase-admin.json");
