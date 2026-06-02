@@ -338,6 +338,12 @@ class GhostNotifier extends Notifier<GhostState> {
     final prefs = await SharedPreferences.getInstance();
     final json = state.rules.map((r) => r.toJson()).toList();
     await prefs.setString('ghost_rules', jsonEncode(json));
+    await prefs.setBool('ghost_global', state.globalGhost);
+    if (state.timerExpiry != null) {
+      await prefs.setInt('ghost_timer_expiry', state.timerExpiry!.millisecondsSinceEpoch);
+    } else {
+      await prefs.remove('ghost_timer_expiry');
+    }
   }
 
   Future<void> _load() async {
@@ -348,11 +354,29 @@ class GhostNotifier extends Notifier<GhostState> {
         final list = jsonDecode(str) as List;
         final rules = list.map((j) => GhostRule.fromJson(j)).toList();
         state = state.copyWith(rules: rules);
-        evaluate();
       } catch (e) {
         debugPrint('[Ghost] Failed to load rules: $e');
       }
     }
+
+    final globalGhost = prefs.getBool('ghost_global') ?? false;
+    if (globalGhost) state = state.copyWith(globalGhost: true);
+
+    final expiryMs = prefs.getInt('ghost_timer_expiry');
+    if (expiryMs != null) {
+      final expiry = DateTime.fromMillisecondsSinceEpoch(expiryMs);
+      if (expiry.isAfter(DateTime.now())) {
+        // Timer still valid — restore it and schedule the expiry callback.
+        state = state.copyWith(timerExpiry: expiry);
+        _scheduleTimerExpiry(expiry.difference(DateTime.now()));
+      } else {
+        // Timer already expired while the app was dead — clear it.
+        await prefs.remove('ghost_timer_expiry');
+      }
+    }
+
+    evaluate();
+
     final bgGhost = prefs.getBool('ghost_active_bg') ?? false;
     if (bgGhost && !state.isGhostActive) {
       evaluate();

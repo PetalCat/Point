@@ -22,6 +22,9 @@ class WsService {
   bool _disposed = false;
   int _reconnectAttempt = 0;
 
+  /// Called after a successful reconnect so callers can re-relay current state.
+  void Function()? onReconnected;
+
   bool get isConnected => _isConnected;
 
   void connect(String token) {
@@ -43,6 +46,7 @@ class WsService {
 
     // Send auth as first message (token never in URL/logs)
     _channel!.sink.add(jsonEncode({'type': 'auth', 'token': _token}));
+    onReconnected?.call();
 
     _subscription = _channel!.stream.listen(
       (data) {

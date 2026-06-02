@@ -239,6 +239,10 @@ class LocationNotifier extends Notifier<LocationState> {
     // Listen for WS messages (location broadcasts, presence, nudges).
     _wsSubscription = wsService.messages.listen(_handleWsMessage);
 
+    // On reconnect, immediately relay so contacts get a fresh position
+    // instead of waiting for the next scheduled tick.
+    wsService.onReconnected = () => _relayTick(force: true);
+
     // Listen for GPS positions — every fix updates the map immediately.
     _positionSubscription = locationService.positions.listen(_onPosition);
 
@@ -258,6 +262,7 @@ class LocationNotifier extends Notifier<LocationState> {
 
     ref.onDispose(() {
       _disposed = true;
+      wsService.onReconnected = null;
       _wsSubscription?.cancel();
       _positionSubscription?.cancel();
       _activitySubscription?.cancel();
@@ -604,6 +609,7 @@ class LocationNotifier extends Notifier<LocationState> {
       if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
         final blob = await cryptoService.encrypt(groupId, locationJson);
+        if (blob == null) continue; // MLS not ready for this group yet
         wsService.sendLocationUpdate(
           recipientType: 'group',
           recipientId: groupId,
@@ -660,11 +666,14 @@ class LocationNotifier extends Notifier<LocationState> {
       try {
         final blobs = <String>[];
         final timestamps = <int>[];
+        bool anyNull = false;
         for (final fix in batch) {
           final blob = await cryptoService.encrypt(groupId, fix.toJson());
+          if (blob == null) { anyNull = true; break; }
           blobs.add(blob);
           timestamps.add(fix.timestamp);
         }
+        if (anyNull) continue;
         wsService.sendBatchLocationUpdate(
           recipientType: 'group',
           recipientId: groupId,
@@ -686,11 +695,14 @@ class LocationNotifier extends Notifier<LocationState> {
             : userId;
         final blobs = <String>[];
         final timestamps = <int>[];
+        bool anyNull = false;
         for (final fix in batch) {
           final blob = await cryptoService.encrypt(encryptId, fix.toJson());
+          if (blob == null) { anyNull = true; break; }
           blobs.add(blob);
           timestamps.add(fix.timestamp);
         }
+        if (anyNull) continue;
         wsService.sendBatchLocationUpdate(
           recipientType: 'user',
           recipientId: userId,

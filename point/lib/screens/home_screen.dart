@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
+import '../services/location_service.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
 
 import '../config.dart';
@@ -99,6 +100,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
       await PushService.init(
         onTokenReceived: (token) async {
           await ref.read(authProvider.notifier).registerFcmToken(token);
+        },
+        onMessage: (data) {
+          final type = data['type'] as String?;
+          if (type == 'location.nudge' || type == 'nudge') {
+            ref.read(locationServiceProvider).wake(WakeReason.nudge);
+          }
         },
       );
     } catch (e) {
