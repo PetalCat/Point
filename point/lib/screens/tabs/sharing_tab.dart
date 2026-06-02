@@ -47,6 +47,20 @@ class _SharingTabState extends ConsumerState<SharingTab> {
         );
       }
     });
+    ref.listen(acceptZoneConsentMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to accept zone consent')),
+        );
+      }
+    });
+    ref.listen(rejectZoneConsentMutation, (prev, next) {
+      if (next.hasError) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Failed to reject zone consent')),
+        );
+      }
+    });
 
     return RefreshIndicator(
       color: PointColors.accent,
@@ -344,16 +358,35 @@ class _SharingTabState extends ConsumerState<SharingTab> {
             ),
             ...sharing.outgoingRequests.map((r) => _buildOutgoingRequestRow(r)),
           ],
+          if (sharing.incomingZoneConsents.isNotEmpty) ...[
+            if (sharing.incomingRequests.isNotEmpty || sharing.outgoingRequests.isNotEmpty)
+              const SizedBox(height: 10),
+            const Padding(
+              padding: EdgeInsets.only(bottom: 8, left: 2),
+              child: Text(
+                'ZONE ACTIVITY REQUESTS',
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 1.5,
+                  color: PointColors.textTertiary,
+                ),
+              ),
+            ),
+            ...sharing.incomingZoneConsents.map((c) => _buildZoneConsentRow(c)),
+          ],
           if (_sharingFilter == 3 &&
               sharing.incomingRequests.isEmpty &&
-              sharing.outgoingRequests.isEmpty)
+              sharing.outgoingRequests.isEmpty &&
+              sharing.incomingZoneConsents.isEmpty)
             _buildEmptyState(Icons.swap_horiz, 'No pending requests'),
         ],
         if (_sharingFilter == 0 &&
             sharing.shares.isEmpty &&
             groups.groups.isEmpty &&
             sharing.incomingRequests.isEmpty &&
-            sharing.outgoingRequests.isEmpty)
+            sharing.outgoingRequests.isEmpty &&
+            sharing.incomingZoneConsents.isEmpty)
           _buildEmptyState(Icons.share_outlined, 'No sharing yet'),
         const SizedBox(height: 40),
       ],
@@ -835,6 +868,154 @@ class _SharingTabState extends ConsumerState<SharingTab> {
               ),
             ),
           ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildZoneConsentRow(Map<String, dynamic> consent) {
+    final ownerId = consent['zone_owner_id'] as String? ?? '';
+    final name = ownerId.split('@').first;
+    final acceptState = ref.watch(acceptZoneConsentMutation(ownerId));
+    final rejectState = ref.watch(rejectZoneConsentMutation(ownerId));
+    final busy = acceptState.isPending || rejectState.isPending;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      decoration: BoxDecoration(
+        color: context.cardBg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 38,
+                height: 38,
+                decoration: BoxDecoration(
+                  color: PointColors.colorForUser(ownerId),
+                  shape: BoxShape.circle,
+                ),
+                child: Center(
+                  child: Text(
+                    name.isNotEmpty ? name[0].toUpperCase() : '?',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      fontWeight: FontWeight.w900,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      style: TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w800,
+                        color: context.primaryText,
+                      ),
+                    ),
+                    Text(
+                      'wants to share zone activity with you',
+                      style: TextStyle(fontSize: 11, color: context.secondaryText),
+                    ),
+                  ],
+                ),
+              ),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: busy
+                      ? null
+                      : () {
+                          rejectZoneConsentMutation(ownerId).run(ref, (tsx) async {
+                            await tsx.get(sharingProvider.notifier).rejectZoneConsent(ownerId);
+                          });
+                        },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: context.subtleBg,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: rejectState.isPending
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text(
+                            'Reject',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: PointColors.textSecondary,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 6),
+              Material(
+                color: Colors.transparent,
+                child: InkWell(
+                  onTap: busy
+                      ? null
+                      : () {
+                          acceptZoneConsentMutation(ownerId).run(ref, (tsx) async {
+                            await tsx.get(sharingProvider.notifier).acceptZoneConsent(ownerId);
+                          });
+                        },
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                    decoration: BoxDecoration(
+                      color: PointColors.accent,
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: acceptState.isPending
+                        ? const SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                          )
+                        : const Text(
+                            'Allow',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
+                          ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (acceptState.hasError || rejectState.hasError)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                acceptState.hasError
+                    ? 'Failed to allow zone activity'
+                    : 'Failed to reject',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
+                  color: PointColors.danger,
+                ),
+              ),
+            ),
         ],
       ),
     );

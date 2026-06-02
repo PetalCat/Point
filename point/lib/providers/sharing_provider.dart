@@ -162,6 +162,7 @@ class SharingNotifier extends Notifier<SharingState> {
       }
     } catch (e) {
       debugPrint('SharingNotifier error: $e');
+      rethrow;
     }
   }
 
@@ -172,6 +173,7 @@ class SharingNotifier extends Notifier<SharingState> {
       await loadAll();
     } catch (e) {
       debugPrint('SharingNotifier error: $e');
+      rethrow;
     }
   }
 
@@ -182,6 +184,7 @@ class SharingNotifier extends Notifier<SharingState> {
       await loadAll();
     } catch (e) {
       debugPrint('SharingNotifier error: $e');
+      rethrow;
     }
   }
 
@@ -192,6 +195,7 @@ class SharingNotifier extends Notifier<SharingState> {
       await loadAll();
     } catch (e) {
       debugPrint('SharingNotifier error: $e');
+      rethrow;
     }
   }
 

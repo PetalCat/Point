@@ -22,8 +22,6 @@ class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
   // null means personal, otherwise group id
   String? _selectedGroupId;
   bool _isPersonal = false;
-  bool _notifyArrive = true;
-  bool _notifyLeave = true;
   bool _saving = false;
 
   static const String _personalValue = '__personal__';
@@ -501,27 +499,7 @@ class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
                     ),
                     const SizedBox(height: 14),
 
-                    // Arrive/Leave toggles
-                    Row(
-                      children: [
-                        Expanded(
-                          child: _buildAlertToggle(
-                            'Arrive',
-                            _notifyArrive,
-                            (v) => setState(() => _notifyArrive = v),
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: _buildAlertToggle(
-                            'Leave',
-                            _notifyLeave,
-                            (v) => setState(() => _notifyLeave = v),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 8),
 
                     // Save button
                     GestureDetector(
@@ -595,43 +573,4 @@ class _PlaceCreationScreenState extends ConsumerState<PlaceCreationScreen> {
     );
   }
 
-  Widget _buildAlertToggle(
-    String label,
-    bool value,
-    ValueChanged<bool> onChanged,
-  ) {
-    return GestureDetector(
-      onTap: () => onChanged(!value),
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 14),
-        decoration: BoxDecoration(
-          color: value
-              ? PointColors.accent.withValues(alpha: 0.08)
-              : context.subtleBg,
-          borderRadius: BorderRadius.circular(12),
-          border: value
-              ? Border.all(color: PointColors.accent.withValues(alpha: 0.3))
-              : null,
-        ),
-        child: Row(
-          children: [
-            Icon(
-              value ? Icons.check_circle : Icons.circle_outlined,
-              size: 18,
-              color: value ? PointColors.accent : PointColors.textTertiary,
-            ),
-            const SizedBox(width: 8),
-            Text(
-              label,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w700,
-                color: value ? PointColors.accent : PointColors.textSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
