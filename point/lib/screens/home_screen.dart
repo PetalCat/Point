@@ -63,15 +63,15 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     final auth = ref.read(authProvider);
     final ws = ref.read(wsServiceProvider);
     final groupNotifier = ref.read(groupProvider.notifier);
-    final locationNotifier = ref.read(locationProvider.notifier);
 
+    // Load zones before starting GPS so first position has zone context.
+    final zoneLearning = ref.read(zoneLearningServiceProvider);
+    await zoneLearning.load();
+
+    final locationNotifier = ref.read(locationProvider.notifier);
     if (auth.token != null) ws.connect(auth.token!);
     ws.sendPresence();
     locationNotifier.setMyUserId(auth.userId ?? '');
-
-    // Load learned zones from local storage.
-    final zoneLearning = ref.read(zoneLearningServiceProvider);
-    await zoneLearning.load();
 
     // Ghost provider reads apiService via ref internally
 
