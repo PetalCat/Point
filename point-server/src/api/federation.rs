@@ -191,11 +191,29 @@ async fn handle_federated_location(
     let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
 
-    // Check ghost flag — drop if the LOCAL recipient has ghosted the sender
-    // (We don't trust the sender's server to enforce our user's ghost preferences)
-    if db::users::is_ghost_active(&state.pool, &local_user).await.unwrap_or(false) {
-        tracing::debug!(recipient = %local_user, "dropping federated location — ghost active");
-        return Ok(Json(serde_json::json!({ "ok": true, "dropped": "ghost" })));
+    // Ghost check — fail closed on error.
+    match db::users::is_ghost_active(&state.pool, &local_user).await {
+        Ok(true) => {
+            tracing::debug!(recipient = %local_user, "dropping federated location — ghost active");
+            return Ok(Json(serde_json::json!({ "ok": true, "dropped": "ghost" })));
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, "ghost check failed — dropping federated location (fail closed)");
+            return Ok(Json(serde_json::json!({ "ok": true, "dropped": "ghost_check_failed" })));
+        }
+    }
+
+    // Relationship check — the local user must have accepted a share from the remote sender.
+    let authorized = db::shares::can_send_to_user(&state.pool, &msg.sender, &local_user)
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        tracing::warn!(
+            sender = %msg.sender, recipient = %local_user,
+            "federated location dropped: no accepted share relationship"
+        );
+        return Ok(Json(serde_json::json!({ "ok": true, "dropped": "unauthorized" })));
     }
 
     // Deliver via WebSocket
@@ -342,13 +360,26 @@ async fn handle_federated_mls(
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
-/// Handle a federated key package request — return key packages for a local user.
+/// Handle a federated key package request — return key packages only when a
+/// share relationship exists between the requester and the local user.
 async fn handle_federated_key_request(
     state: &AppState,
     msg: &FederatedMessage,
 ) -> Result<Json<serde_json::Value>, AppError> {
     let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
+
+    // Only serve key packages when a share relationship exists.
+    let authorized = db::shares::can_send_to_user(&state.pool, &msg.sender, &local_user)
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        tracing::warn!(
+            sender = %msg.sender, recipient = %local_user,
+            "federated key request denied: no share relationship"
+        );
+        return Err(AppError::Forbidden);
+    }
 
     let packages = db::mls::get_key_packages(&state.pool, &local_user).await?;
     let engine = base64::engine::general_purpose::STANDARD;
@@ -367,6 +398,18 @@ async fn handle_federated_nudge(
 ) -> Result<Json<serde_json::Value>, AppError> {
     let local_user = find_local_user(&state.pool, &msg.recipient).await
         .ok_or_else(|| AppError::NotFound("recipient not found".into()))?;
+
+    // Require a share relationship before relaying nudges.
+    let authorized = db::shares::can_send_to_user(&state.pool, &msg.sender, &local_user)
+        .await
+        .unwrap_or(false);
+    if !authorized {
+        tracing::warn!(
+            sender = %msg.sender, recipient = %local_user,
+            "federated nudge dropped: no share relationship"
+        );
+        return Ok(Json(serde_json::json!({ "ok": true, "dropped": "unauthorized" })));
+    }
 
     let ws_msg = serde_json::json!({
         "type": "location.nudge",

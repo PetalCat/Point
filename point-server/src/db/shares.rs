@@ -332,7 +332,7 @@ pub async fn cleanup_expired_temp_shares(pool: &DbPool) -> Result<u64, sqlx::Err
     Ok(result.rows_affected())
 }
 
-/// Check if two users have an active share.
+/// Check if two users have an active permanent share.
 pub async fn are_sharing(
     pool: &DbPool,
     user_a: &str,
@@ -352,4 +352,37 @@ pub async fn are_sharing(
 
     let count: i64 = row.get("cnt");
     Ok(count > 0)
+}
+
+/// Check if `from_user` has an active non-expired temporary share to `to_user`.
+pub async fn has_active_temp_share(
+    pool: &DbPool,
+    from_user: &str,
+    to_user: &str,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) as cnt FROM temporary_shares \
+         WHERE from_user_id = ? AND to_user_id = ? AND expires_at > datetime('now')",
+    )
+    .bind(from_user)
+    .bind(to_user)
+    .fetch_one(pool)
+    .await?;
+
+    let count: i64 = row.get("cnt");
+    Ok(count > 0)
+}
+
+/// Check if `sender` is authorized to send location to `recipient` — either a
+/// permanent share or an active temporary share exists in either direction.
+pub async fn can_send_to_user(
+    pool: &DbPool,
+    sender: &str,
+    recipient: &str,
+) -> Result<bool, sqlx::Error> {
+    if are_sharing(pool, sender, recipient).await? {
+        return Ok(true);
+    }
+    // Temp shares are directional: sender shares TO recipient.
+    has_active_temp_share(pool, sender, recipient).await
 }

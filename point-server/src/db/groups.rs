@@ -101,6 +101,23 @@ pub async fn get_members(pool: &DbPool, group_id: &str) -> Result<Vec<GroupMembe
     }).collect())
 }
 
+/// Returns true only when user is a member AND has sharing=true for this group.
+pub async fn is_sharing_member(
+    pool: &DbPool,
+    group_id: &str,
+    user_id: &str,
+) -> Result<bool, sqlx::Error> {
+    let row = sqlx::query(
+        "SELECT COUNT(*) as cnt FROM group_members \
+         WHERE group_id = ? AND user_id = ? AND sharing = TRUE",
+    )
+    .bind(group_id)
+    .bind(user_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.get::<i64, _>("cnt") > 0)
+}
+
 pub async fn get_member_role(pool: &DbPool, group_id: &str, user_id: &str) -> Result<Option<String>, sqlx::Error> {
     let row = sqlx::query("SELECT role FROM group_members WHERE group_id = ? AND user_id = ?")
         .bind(group_id).bind(user_id)

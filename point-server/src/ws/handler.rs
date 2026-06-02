@@ -158,6 +158,22 @@ async fn process_message(
     }
 }
 
+/// Central authorization gate: returns true iff `sender` is allowed to send
+/// location to `recipient_type`/`recipient_id`. Fails closed — any DB error
+/// returns Err and the caller must drop the message.
+async fn can_send_location(
+    pool: &sqlx::SqlitePool,
+    sender: &str,
+    recipient_type: &str,
+    recipient_id: &str,
+) -> Result<bool, sqlx::Error> {
+    match recipient_type {
+        "group" => db::groups::is_sharing_member(pool, recipient_id, sender).await,
+        "user" => db::shares::can_send_to_user(pool, sender, recipient_id).await,
+        _ => Ok(false),
+    }
+}
+
 async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState, hub: &Hub) {
     let recipient_type = match &env.recipient_type {
         Some(v) => v.as_str(),
@@ -175,7 +191,7 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
     let timestamp = env.timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp());
     let ttl = env.ttl.unwrap_or(300);
 
-    // Server-side ghost safety net — drop location if user is globally ghosted
+    // Ghost check — fail closed on DB error.
     match db::users::is_ghost_active(&state.pool, user_id).await {
         Ok(true) => {
             tracing::debug!(user = %user_id, "dropping location broadcast — ghost active");
@@ -183,11 +199,34 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
         }
         Ok(false) => {}
         Err(e) => {
-            tracing::warn!(error = %e, "failed to check ghost flag, allowing broadcast");
+            tracing::warn!(error = %e, user = %user_id, "ghost check failed — dropping location (fail closed)");
+            return;
         }
     }
 
-    // Store in DB
+    // Authorization — must pass before any DB write.
+    let is_federated = recipient_type == "user"
+        && recipient_id.contains('@')
+        && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
+
+    if !is_federated {
+        match can_send_location(&state.pool, user_id, recipient_type, recipient_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    sender = %user_id, recipient_type, recipient = %recipient_id,
+                    "location update dropped: not authorized"
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "authorization check failed — dropping (fail closed)");
+                return;
+            }
+        }
+    }
+
+    // Store in DB (only after authorization succeeds).
     let id = uuid::Uuid::new_v4().to_string();
     if let Err(e) = db::locations::store_location(
         &state.pool,
@@ -206,7 +245,6 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
         return;
     }
 
-    // Store a copy in location_history for trail/history feature
     let history_id = uuid::Uuid::new_v4().to_string();
     if let Err(e) = db::history::store_history_point(
         &state.pool,
@@ -221,7 +259,6 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
         tracing::error!(error = %e, "failed to store location history point");
     }
 
-    // Build the outgoing message (forward as-is with sender info)
     let outgoing = serde_json::json!({
         "type": "location.broadcast",
         "sender_id": user_id,
@@ -233,7 +270,6 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
     });
     let data = outgoing.to_string().into_bytes();
 
-    // Route to recipients
     match recipient_type {
         "group" => {
             match db::groups::get_members(&state.pool, recipient_id).await {
@@ -244,18 +280,11 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to look up group members");
-                }
+                Err(e) => tracing::error!(error = %e, "failed to look up group members"),
             }
         }
         "user" => {
-            // Check if this is a federated recipient (user@otherdomain)
-            let is_federated = recipient_id.contains('@')
-                && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
-
             if is_federated {
-                // Forward via federation
                 let sender = if user_id.contains('@') {
                     user_id.to_string()
                 } else {
@@ -265,10 +294,7 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
                     "sender": sender,
                     "recipient": recipient_id,
                     "message_type": "location.update",
-                    "payload": {
-                        "encrypted_blob": encrypted_blob,
-                        "source_type": source_type,
-                    },
+                    "payload": { "encrypted_blob": encrypted_blob, "source_type": source_type },
                     "timestamp": timestamp,
                 });
                 let fed_keys = state.federation_keys.clone();
@@ -290,30 +316,11 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
                         }
                     }
                 });
-            } else {
-            // Local delivery — verify the sender and recipient have an active share
-            match db::shares::are_sharing(&state.pool, user_id, recipient_id).await {
-                Ok(true) => {
-                    if recipient_id != user_id {
-                        hub.send_to_user(recipient_id, &data);
-                    }
-                }
-                Ok(false) => {
-                    tracing::warn!(
-                        sender = %user_id,
-                        recipient = %recipient_id,
-                        "location update dropped: no active share"
-                    );
-                }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to check share status");
-                }
+            } else if recipient_id != user_id {
+                hub.send_to_user(recipient_id, &data);
             }
-            } // end else (local delivery)
         }
-        other => {
-            tracing::warn!(recipient_type = %other, "unknown recipient_type");
-        }
+        other => tracing::warn!(recipient_type = %other, "unknown recipient_type"),
     }
 }
 
@@ -339,7 +346,7 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
     };
     let source_type = env.source_type.as_deref().unwrap_or("native");
 
-    // Server-side ghost safety net
+    // Ghost check — fail closed.
     match db::users::is_ghost_active(&state.pool, user_id).await {
         Ok(true) => {
             tracing::debug!(user = %user_id, "dropping batch location — ghost active");
@@ -347,7 +354,30 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
         }
         Ok(false) => {}
         Err(e) => {
-            tracing::warn!(error = %e, "failed to check ghost flag, allowing batch");
+            tracing::warn!(error = %e, user = %user_id, "ghost check failed — dropping batch (fail closed)");
+            return;
+        }
+    }
+
+    // Authorization before any DB write.
+    let is_federated = recipient_type == "user"
+        && recipient_id.contains('@')
+        && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
+
+    if !is_federated {
+        match can_send_location(&state.pool, user_id, recipient_type, recipient_id).await {
+            Ok(true) => {}
+            Ok(false) => {
+                tracing::warn!(
+                    sender = %user_id, recipient_type, recipient = %recipient_id,
+                    "batch location dropped: not authorized"
+                );
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "batch authorization check failed — dropping (fail closed)");
+                return;
+            }
         }
     }
 
@@ -368,7 +398,6 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
         }
     }
 
-    // Store only the latest fix as the current location.
     let latest_blob = &blobs[blobs.len() - 1];
     let latest_ts = timestamps[timestamps.len() - 1];
     let id = uuid::Uuid::new_v4().to_string();
@@ -390,7 +419,6 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
         return;
     }
 
-    // Broadcast only the LATEST position to viewers.
     let outgoing = serde_json::json!({
         "type": "location.broadcast",
         "sender_id": user_id,
@@ -412,15 +440,10 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
                         }
                     }
                 }
-                Err(e) => {
-                    tracing::error!(error = %e, "failed to look up group members for batch");
-                }
+                Err(e) => tracing::error!(error = %e, "failed to look up group members for batch"),
             }
         }
         "user" => {
-            let is_federated = recipient_id.contains('@')
-                && recipient_id.split('@').nth(1).map_or(false, |d| d != state.config.domain);
-
             if is_federated {
                 let sender = if user_id.contains('@') {
                     user_id.to_string()
@@ -431,10 +454,7 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
                     "sender": sender,
                     "recipient": recipient_id,
                     "message_type": "location.update",
-                    "payload": {
-                        "encrypted_blob": latest_blob,
-                        "source_type": source_type,
-                    },
+                    "payload": { "encrypted_blob": latest_blob, "source_type": source_type },
                     "timestamp": latest_ts,
                 });
                 let fed_keys = state.federation_keys.clone();
@@ -456,29 +476,11 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
                         }
                     }
                 });
-            } else {
-                match db::shares::are_sharing(&state.pool, user_id, recipient_id).await {
-                    Ok(true) => {
-                        if recipient_id != user_id {
-                            hub.send_to_user(recipient_id, &data);
-                        }
-                    }
-                    Ok(false) => {
-                        tracing::warn!(
-                            sender = %user_id,
-                            recipient = %recipient_id,
-                            "batch location update dropped: no active share"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::error!(error = %e, "failed to check share status for batch");
-                    }
-                }
+            } else if recipient_id != user_id {
+                hub.send_to_user(recipient_id, &data);
             }
         }
-        other => {
-            tracing::warn!(recipient_type = %other, "unknown recipient_type in batch");
-        }
+        other => tracing::warn!(recipient_type = %other, "unknown recipient_type in batch"),
     }
 
     tracing::debug!(user_id = %user_id, count = blobs.len(), "batch location update processed");
@@ -629,7 +631,7 @@ async fn handle_item_location(user_id: &str, env: &Envelope, state: &AppState, h
     let source_type = env.source_type.as_deref().unwrap_or("bridge");
     let timestamp = env.timestamp.unwrap_or_else(|| chrono::Utc::now().timestamp());
 
-    // Look up the item
+    // Look up the item and verify the sender owns it.
     let item = match db::items::get_item(&state.pool, item_id).await {
         Ok(Some(item)) => item,
         Ok(None) => return,
@@ -638,6 +640,13 @@ async fn handle_item_location(user_id: &str, env: &Envelope, state: &AppState, h
             return;
         }
     };
+    if item.owner_id != user_id {
+        tracing::warn!(
+            user = %user_id, item = %item_id,
+            "item location rejected: sender is not the item owner"
+        );
+        return;
+    }
 
     // Build broadcast message
     let broadcast = serde_json::json!({
@@ -691,6 +700,19 @@ async fn handle_item_location(user_id: &str, env: &Envelope, state: &AppState, h
 }
 
 async fn handle_presence_update(user_id: &str, env: &Envelope, state: &AppState, hub: &Hub) {
+    // Ghost users must not leak presence — fail closed on error.
+    match db::users::is_ghost_active(&state.pool, user_id).await {
+        Ok(true) => {
+            tracing::debug!(user = %user_id, "suppressing presence — ghost active");
+            return;
+        }
+        Ok(false) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, user = %user_id, "ghost check failed — suppressing presence (fail closed)");
+            return;
+        }
+    }
+
     let update = PresenceUpdate {
         user_id: user_id.to_string(),
         online: true,
