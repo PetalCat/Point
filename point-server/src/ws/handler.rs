@@ -253,6 +253,8 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
         encrypted_blob.as_bytes(),
         source_type,
         timestamp,
+        recipient_type,
+        recipient_id,
     )
     .await
     {
@@ -391,6 +393,8 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
             blob.as_bytes(),
             source_type,
             *ts,
+            recipient_type,
+            recipient_id,
         )
         .await
         {

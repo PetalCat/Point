@@ -30,38 +30,39 @@ pub async fn get_history(
     Path(target_user_id): Path<String>,
     Query(query): Query<HistoryQuery>,
 ) -> Result<Json<Vec<HistoryPointResponse>>, AppError> {
-    // Allow users to fetch their own history, or verify sharing relationship
-    if target_user_id != user.user_id {
-        let has_share = db::shares::are_sharing(&state.pool, &user.user_id, &target_user_id)
-            .await
-            .map_err(|e| AppError::Internal(e.to_string()))?;
-
-        if !has_share {
-            // Check if they share a group
-            let user_groups = db::groups::list_user_groups(&state.pool, &user.user_id)
-                .await
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-
-            let target_groups = db::groups::list_user_groups(&state.pool, &target_user_id)
-                .await
-                .map_err(|e| AppError::Internal(e.to_string()))?;
-
-            let shared_group = user_groups
-                .iter()
-                .any(|ug| target_groups.iter().any(|tg| tg.id == ug.id));
-
-            if !shared_group {
-                return Err(AppError::Forbidden);
-            }
-        }
-    }
-
     let since = query.since.unwrap_or(0);
     let limit = query.limit.unwrap_or(100).min(1000);
 
-    let points = db::history::get_history_for_user(&state.pool, &target_user_id, since, limit)
+    // Owner sees their full history; others see only audience-bound rows (P1-10).
+    let points = if target_user_id == user.user_id {
+        db::history::get_own_history(&state.pool, &target_user_id, since, limit)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?
+    } else {
+        let requester_groups = db::groups::list_user_groups(&state.pool, &user.user_id)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        let group_ids: Vec<String> = requester_groups.into_iter().map(|g| g.id).collect();
+
+        // Must have at least some relationship to fetch anything.
+        let has_share = db::shares::can_send_to_user(&state.pool, &target_user_id, &user.user_id)
+            .await
+            .map_err(|e| AppError::Internal(e.to_string()))?;
+        if !has_share && group_ids.is_empty() {
+            return Err(AppError::Forbidden);
+        }
+
+        db::history::get_history_for_audience(
+            &state.pool,
+            &target_user_id,
+            &user.user_id,
+            &group_ids,
+            since,
+            limit,
+        )
         .await
-        .map_err(|e| AppError::Internal(e.to_string()))?;
+        .map_err(|e| AppError::Internal(e.to_string()))?
+    };
 
     let response: Vec<HistoryPointResponse> = points
         .into_iter()
