@@ -148,6 +148,12 @@ async fn process_message(
         "location.subscribe" => {
             tracing::info!(user_id = %user_id, "location.subscribe received (no-op for now)");
         }
+        // Bridge / item handling stays disabled unless explicitly enabled (P1-16).
+        "bridge.register" | "bridge.heartbeat" | "item.location"
+            if !state.config.enable_bridges =>
+        {
+            tracing::debug!(user_id = %user_id, msg_type = %envelope.msg_type, "bridge/item message dropped: bridges disabled");
+        }
         "bridge.register" => handle_bridge_register(user_id, &envelope, state, hub).await,
         "bridge.heartbeat" => handle_bridge_heartbeat(user_id, &envelope, state).await,
         "item.location" => handle_item_location(user_id, &envelope, state, hub).await,

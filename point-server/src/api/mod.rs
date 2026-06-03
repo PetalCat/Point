@@ -94,7 +94,8 @@ impl FromRef<AppState> for AppState {
 }
 
 pub fn router(state: AppState) -> Router {
-    Router::new()
+    let enable_bridges = state.config.enable_bridges;
+    let router = Router::new()
         .route("/api/register", post(auth::register))
         .route("/api/login", post(auth::login))
         .route("/api/account", delete(auth::delete_account))
@@ -108,10 +109,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/groups/{id}/members", post(groups::add_member))
         .route("/api/groups/{id}/members/{member_id}", delete(groups::remove_member))
         .route("/api/groups/{id}/members/{member_id}/role", put(groups::update_member_role))
-        .route("/api/items", post(items::create).get(items::list))
-        .route("/api/items/{id}", delete(items::delete))
-        .route("/api/items/{id}/share", post(items::share))
-        .route("/api/items/{id}/unshare", post(items::unshare))
         .route("/api/shares", get(shares::list_shares))
         .route("/api/shares/temp", post(shares::create_temp).get(shares::list_temp))
         .route("/api/shares/temp/{id}", delete(shares::delete_temp))
@@ -134,13 +131,6 @@ pub fn router(state: AppState) -> Router {
         .route("/api/invites/{id}", delete(invites::delete))
         .route("/api/history/{user_id}", get(history::get_history))
         .route("/api/history", delete(history::delete_history))
-        .route("/api/bridges/registry", get(bridge_entities::list_registry))
-        .route("/api/bridges/entities", post(bridge_entities::create_entity).get(bridge_entities::list_entities))
-        .route("/api/bridges/entities/discovered", post(bridge_entities::discover_entity))
-        .route("/api/bridges/entities/{id}", get(bridge_entities::get_entity).delete(bridge_entities::delete_entity))
-        .route("/api/bridges/entities/{id}/confirm", post(bridge_entities::confirm_entity))
-        .route("/api/bridges/entities/{id}/share", post(bridge_entities::share_entity))
-        .route("/api/bridges/entities/{id}/shares", get(bridge_entities::list_entity_shares))
         .route("/api/ghost", put(ghost::set_ghost))
         .route("/.well-known/point", get(federation::well_known))
         .route("/federation/inbox", post(federation::inbox))
@@ -153,6 +143,27 @@ pub fn router(state: AppState) -> Router {
         .route("/api/mls/messages/{id}/ack", post(mls::ack_message))
         .route("/api/admin/info", get(admin::info))
         .route("/api/fcm/token", post(auth::register_fcm_token))
-        .route("/ws", get(crate::ws::ws_upgrade))
-        .with_state(state)
+        .route("/ws", get(crate::ws::ws_upgrade));
+
+    // Bridge / item-tracker endpoints are incomplete and stay disabled unless
+    // explicitly enabled (P1-16). Hidden incomplete paths are acceptable;
+    // reachable ones are not.
+    let router = if enable_bridges {
+        router
+            .route("/api/items", post(items::create).get(items::list))
+            .route("/api/items/{id}", delete(items::delete))
+            .route("/api/items/{id}/share", post(items::share))
+            .route("/api/items/{id}/unshare", post(items::unshare))
+            .route("/api/bridges/registry", get(bridge_entities::list_registry))
+            .route("/api/bridges/entities", post(bridge_entities::create_entity).get(bridge_entities::list_entities))
+            .route("/api/bridges/entities/discovered", post(bridge_entities::discover_entity))
+            .route("/api/bridges/entities/{id}", get(bridge_entities::get_entity).delete(bridge_entities::delete_entity))
+            .route("/api/bridges/entities/{id}/confirm", post(bridge_entities::confirm_entity))
+            .route("/api/bridges/entities/{id}/share", post(bridge_entities::share_entity))
+            .route("/api/bridges/entities/{id}/shares", get(bridge_entities::list_entity_shares))
+    } else {
+        router
+    };
+
+    router.with_state(state)
 }

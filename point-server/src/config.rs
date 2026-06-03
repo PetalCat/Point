@@ -14,4 +14,9 @@ pub struct Config {
     /// Allow open registration (no invite code needed)
     #[arg(long, env = "OPEN_REGISTRATION", default_value = "true")]
     pub open_registration: bool,
+    /// Enable bridge/item tracker endpoints. Off by default — these are
+    /// incomplete (no real bridge daemons, item flows are scaffolding) and
+    /// should stay hidden until finished (P1-16).
+    #[arg(long, env = "ENABLE_BRIDGES", default_value = "false")]
+    pub enable_bridges: bool,
 }
