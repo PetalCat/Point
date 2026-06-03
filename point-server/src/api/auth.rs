@@ -12,6 +12,15 @@ use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
 use crate::db;
 use crate::error::AppError;
 
+/// Shared password policy — used at registration AND password change so the
+/// two can't drift (P2-19).
+fn validate_password(password: &str) -> Result<(), AppError> {
+    if password.len() < 8 || password.len() > 128 {
+        return Err(AppError::BadRequest("password must be 8-128 characters".into()));
+    }
+    Ok(())
+}
+
 // IP-based rate limiter for auth endpoints: max 10 attempts per minute per username
 static AUTH_RATE_LIMIT: LazyLock<DashMap<String, (u32, std::time::Instant)>> =
     LazyLock::new(DashMap::new);
@@ -132,9 +141,7 @@ pub async fn register(
     if req.username.len() < 3 || req.username.len() > 32 {
         return Err(AppError::BadRequest("username must be 3-32 characters".into()));
     }
-    if req.password.len() < 8 || req.password.len() > 128 {
-        return Err(AppError::BadRequest("password must be 8-128 characters".into()));
-    }
+    validate_password(&req.password)?;
     // Only allow alphanumeric + underscore/hyphen in usernames
     if !req.username.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
         return Err(AppError::BadRequest("username may only contain letters, numbers, _ and -".into()));
@@ -290,9 +297,7 @@ pub async fn change_password(
     State(state): State<AppState>,
     Json(req): Json<ChangePasswordRequest>,
 ) -> Result<Json<serde_json::Value>, AppError> {
-    if req.new_password.is_empty() {
-        return Err(AppError::BadRequest("new password cannot be empty".into()));
-    }
+    validate_password(&req.new_password)?;
 
     let user = db::users::get_user_by_id(&state.pool, &auth_user.user_id)
         .await?

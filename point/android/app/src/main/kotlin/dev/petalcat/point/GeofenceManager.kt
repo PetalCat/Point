@@ -15,6 +15,11 @@ class GeofenceManager(private val context: Context) {
 
     private val geofencePendingIntent: PendingIntent by lazy {
         val intent = Intent(context, GeofenceBroadcastReceiver::class.java)
+        // FLAG_MUTABLE is REQUIRED for geofencing: Location Services injects the
+        // triggering-geofence extras into this intent when it fires. Using
+        // FLAG_IMMUTABLE here would silently break exit-event delivery. The
+        // receiver only reads geofence transition data, never trusts caller-
+        // supplied extras, so mutability is not an injection vector here.
         PendingIntent.getBroadcast(
             context, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE

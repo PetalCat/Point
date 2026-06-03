@@ -49,6 +49,9 @@ class MainActivity : FlutterActivity() {
 
             override fun onListen(arguments: Any?, events: EventChannel.EventSink) {
                 sinkActive = true
+                // Ensure the durable queue can be drained even if no geofence
+                // has fired yet this process (P1-11).
+                GeofenceBroadcastReceiver.appContext = applicationContext
                 GeofenceBroadcastReceiver.eventSink = { event ->
                     runOnUiThread { if (sinkActive) events.success(event) }
                 }
