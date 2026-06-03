@@ -1,4 +1,4 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'secure_store.dart';
 
 class AuthService {
   static const _tokenKey = 'auth_token';
@@ -6,9 +6,11 @@ class AuthService {
   static const _displayNameKey = 'display_name';
   static const _isAdminKey = 'is_admin';
 
-  final _storage = const FlutterSecureStorage(
-    aOptions: AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // Storage backend (Android Keystore-encrypted, iOS SharedPreferences fallback)
+  // is centralized in SecureStore — see P0-01/P1-13 notes there.
+  Future<void> _write(String key, String value) => SecureStore.write(key, value);
+  Future<String?> _read(String key) => SecureStore.read(key);
+  Future<void> _delete(String key) => SecureStore.delete(key);
 
   Future<void> saveAuth(
     String token,
@@ -16,23 +18,15 @@ class AuthService {
     String displayName,
     bool isAdmin,
   ) async {
-    await _storage.write(key: _tokenKey, value: token);
-    await _storage.write(key: _userIdKey, value: userId);
-    await _storage.write(key: _displayNameKey, value: displayName);
-    await _storage.write(key: _isAdminKey, value: isAdmin.toString());
+    await _write(_tokenKey, token);
+    await _write(_userIdKey, userId);
+    await _write(_displayNameKey, displayName);
+    await _write(_isAdminKey, isAdmin.toString());
   }
 
-  Future<String?> getToken() async {
-    return await _storage.read(key: _tokenKey);
-  }
-
-  Future<String?> getUserId() async {
-    return await _storage.read(key: _userIdKey);
-  }
-
-  Future<String?> getDisplayName() async {
-    return await _storage.read(key: _displayNameKey);
-  }
+  Future<String?> getToken() => _read(_tokenKey);
+  Future<String?> getUserId() => _read(_userIdKey);
+  Future<String?> getDisplayName() => _read(_displayNameKey);
 
   Future<bool> isLoggedIn() async {
     final token = await getToken();
@@ -40,9 +34,9 @@ class AuthService {
   }
 
   Future<void> logout() async {
-    await _storage.delete(key: _tokenKey);
-    await _storage.delete(key: _userIdKey);
-    await _storage.delete(key: _displayNameKey);
-    await _storage.delete(key: _isAdminKey);
+    await _delete(_tokenKey);
+    await _delete(_userIdKey);
+    await _delete(_displayNameKey);
+    await _delete(_isAdminKey);
   }
 }

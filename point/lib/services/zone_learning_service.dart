@@ -2,9 +2,9 @@ import 'dart:convert';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/learned_zone.dart';
+import 'secure_store.dart';
 
 /// Tracks dwell events at GPS positions and promotes recurring dwells into
 /// [LearnedZone]s. Zones are LOCAL ONLY and never sent to the server.
@@ -208,12 +208,12 @@ class ZoneLearningService {
 
   Future<void> save() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      // Learned zones encode home/work — store encrypted at rest (P1-13).
       final zonesJson = _zones.map((z) => z.toJson()).toList();
-      await prefs.setString(_zonesKey, jsonEncode(zonesJson));
+      await SecureStore.write(_zonesKey, jsonEncode(zonesJson));
 
       final dwellsJson = _dwellEvents.map((d) => d.toJson()).toList();
-      await prefs.setString(_dwellsKey, jsonEncode(dwellsJson));
+      await SecureStore.write(_dwellsKey, jsonEncode(dwellsJson));
 
       debugPrint('[Zones] Saved ${_zones.length} zones, ${_dwellEvents.length} pending dwells');
     } catch (e) {
@@ -223,9 +223,7 @@ class ZoneLearningService {
 
   Future<void> load() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-
-      final zonesRaw = prefs.getString(_zonesKey);
+      final zonesRaw = await SecureStore.readMigrating(_zonesKey);
       if (zonesRaw != null) {
         final list = jsonDecode(zonesRaw) as List<dynamic>;
         _zones = list
@@ -246,7 +244,7 @@ class ZoneLearningService {
         }
       }
 
-      final dwellsRaw = prefs.getString(_dwellsKey);
+      final dwellsRaw = await SecureStore.readMigrating(_dwellsKey);
       if (dwellsRaw != null) {
         final list = jsonDecode(dwellsRaw) as List<dynamic>;
         _dwellEvents = list

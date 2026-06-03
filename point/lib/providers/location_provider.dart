@@ -6,13 +6,13 @@ import 'package:battery_plus/battery_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:hooks_riverpod/hooks_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/location_update.dart';
 import '../providers.dart';
 import '../services/location_service.dart';
 import '../services/native_geofence_service.dart';
 import '../services/relay_buffer.dart';
+import '../services/secure_store.dart';
 
 export 'location_state.dart';
 
@@ -130,8 +130,7 @@ class LocationNotifier extends Notifier<LocationState> {
 
   Future<void> _loadCache() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString(_cacheKey);
+      final raw = await SecureStore.readMigrating(_cacheKey);
       if (raw == null) return;
       final data = jsonDecode(raw) as Map<String, dynamic>;
 
@@ -176,7 +175,6 @@ class LocationNotifier extends Notifier<LocationState> {
     final people = state.people;
     final myPos = state.myPosition;
     try {
-      final prefs = await SharedPreferences.getInstance();
       final peopleJson = <String, dynamic>{};
       for (final entry in people.entries) {
         peopleJson[entry.key] = entry.value.toJson();
@@ -186,7 +184,7 @@ class LocationNotifier extends Notifier<LocationState> {
         if (myPos != null) 'myLat': myPos.latitude,
         if (myPos != null) 'myLon': myPos.longitude,
       };
-      await prefs.setString(_cacheKey, jsonEncode(data));
+      await SecureStore.write(_cacheKey, jsonEncode(data));
     } catch (e) {
       debugPrint('[Location] Cache save failed: $e');
     }
