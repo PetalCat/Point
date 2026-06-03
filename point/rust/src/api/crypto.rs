@@ -21,6 +21,20 @@ impl PointCryptoHandle {
         Ok(PointCryptoHandle { inner })
     }
 
+    /// Restore a previously exported MLS state. Falls back to a fresh instance
+    /// on error — callers should re-join groups via the normal Welcome flow.
+    pub fn new_from_state(state_bytes: Vec<u8>) -> anyhow::Result<PointCryptoHandle> {
+        let inner = PointCrypto::restore(&state_bytes).map_err(|e| anyhow::anyhow!("{e}"))?;
+        Ok(PointCryptoHandle { inner })
+    }
+
+    /// Export all MLS state to bytes for durable storage by the caller.
+    /// Call this after every mutation (create_group, add_member, process_welcome,
+    /// process_commit) and persist the result in platform secure storage.
+    pub fn export_state(&self) -> anyhow::Result<Vec<u8>> {
+        self.inner.export_state().map_err(|e| anyhow::anyhow!("{e}"))
+    }
+
     /// Generate a serialized KeyPackage for key exchange.
     /// Upload this to the server so others can add you to groups.
     pub fn generate_key_package(&self) -> anyhow::Result<Vec<u8>> {

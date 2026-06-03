@@ -67,7 +67,7 @@ class RustLib extends BaseEntrypoint<RustLibApi, RustLibApiImpl, RustLibWire> {
   String get codegenVersion => '2.12.0';
 
   @override
-  int get rustContentHash => -1819868965;
+  int get rustContentHash => -1440117813;
 
   static const kDefaultExternalLibraryLoaderConfig =
       ExternalLibraryLoaderConfig(
@@ -102,6 +102,10 @@ abstract class RustLibApi extends BaseApi {
     required List<int> plaintext,
   });
 
+  Future<Uint8List> crateApiCryptoPointCryptoHandleExportState({
+    required PointCryptoHandle that,
+  });
+
   Future<Uint8List> crateApiCryptoPointCryptoHandleGenerateKeyPackage({
     required PointCryptoHandle that,
   });
@@ -118,6 +122,10 @@ abstract class RustLibApi extends BaseApi {
 
   Future<PointCryptoHandle> crateApiCryptoPointCryptoHandleNew({
     required String identity,
+  });
+
+  Future<PointCryptoHandle> crateApiCryptoPointCryptoHandleNewFromState({
+    required List<int> stateBytes,
   });
 
   Future<void> crateApiCryptoPointCryptoHandleProcessCommit({
@@ -312,7 +320,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
-  Future<Uint8List> crateApiCryptoPointCryptoHandleGenerateKeyPackage({
+  Future<Uint8List> crateApiCryptoPointCryptoHandleExportState({
     required PointCryptoHandle that,
   }) {
     return handler.executeNormal(
@@ -327,6 +335,42 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             generalizedFrbRustBinding,
             serializer,
             funcId: 5,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData: sse_decode_list_prim_u_8_strict,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiCryptoPointCryptoHandleExportStateConstMeta,
+        argValues: [that],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCryptoPointCryptoHandleExportStateConstMeta =>
+      const TaskConstMeta(
+        debugName: "PointCryptoHandle_export_state",
+        argNames: ["that"],
+      );
+
+  @override
+  Future<Uint8List> crateApiCryptoPointCryptoHandleGenerateKeyPackage({
+    required PointCryptoHandle that,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_Auto_Ref_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPointCryptoHandle(
+            that,
+            serializer,
+          );
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 6,
             port: port_,
           );
         },
@@ -365,7 +409,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 6,
+            funcId: 7,
             port: port_,
           );
         },
@@ -400,7 +444,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
             serializer,
           );
           sse_encode_list_prim_u_8_loose(groupId, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 7)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 8)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_bool,
@@ -431,7 +475,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 8,
+            funcId: 9,
             port: port_,
           );
         },
@@ -454,6 +498,40 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
       );
 
   @override
+  Future<PointCryptoHandle> crateApiCryptoPointCryptoHandleNewFromState({
+    required List<int> stateBytes,
+  }) {
+    return handler.executeNormal(
+      NormalTask(
+        callFfi: (port_) {
+          final serializer = SseSerializer(generalizedFrbRustBinding);
+          sse_encode_list_prim_u_8_loose(stateBytes, serializer);
+          pdeCallFfi(
+            generalizedFrbRustBinding,
+            serializer,
+            funcId: 10,
+            port: port_,
+          );
+        },
+        codec: SseCodec(
+          decodeSuccessData:
+              sse_decode_Auto_Owned_RustOpaque_flutter_rust_bridgefor_generatedRustAutoOpaqueInnerPointCryptoHandle,
+          decodeErrorData: sse_decode_AnyhowException,
+        ),
+        constMeta: kCrateApiCryptoPointCryptoHandleNewFromStateConstMeta,
+        argValues: [stateBytes],
+        apiImpl: this,
+      ),
+    );
+  }
+
+  TaskConstMeta get kCrateApiCryptoPointCryptoHandleNewFromStateConstMeta =>
+      const TaskConstMeta(
+        debugName: "PointCryptoHandle_new_from_state",
+        argNames: ["stateBytes"],
+      );
+
+  @override
   Future<void> crateApiCryptoPointCryptoHandleProcessCommit({
     required PointCryptoHandle that,
     required List<int> groupId,
@@ -472,7 +550,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 9,
+            funcId: 11,
             port: port_,
           );
         },
@@ -510,7 +588,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 10,
+            funcId: 12,
             port: port_,
           );
         },
@@ -538,7 +616,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
         callFfi: () {
           final serializer = SseSerializer(generalizedFrbRustBinding);
           sse_encode_String(name, serializer);
-          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 11)!;
+          return pdeCallFfi(generalizedFrbRustBinding, serializer, funcId: 13)!;
         },
         codec: SseCodec(
           decodeSuccessData: sse_decode_String,
@@ -563,7 +641,7 @@ class RustLibApiImpl extends RustLibApiImplPlatform implements RustLibApi {
           pdeCallFfi(
             generalizedFrbRustBinding,
             serializer,
-            funcId: 12,
+            funcId: 14,
             port: port_,
           );
         },
@@ -988,6 +1066,12 @@ class PointCryptoHandleImpl extends RustOpaque implements PointCryptoHandle {
     groupId: groupId,
     plaintext: plaintext,
   );
+
+  /// Export all MLS state to bytes for durable storage by the caller.
+  /// Call this after every mutation (create_group, add_member, process_welcome,
+  /// process_commit) and persist the result in platform secure storage.
+  Future<Uint8List> exportState() => RustLib.instance.api
+      .crateApiCryptoPointCryptoHandleExportState(that: this);
 
   /// Generate a serialized KeyPackage for key exchange.
   /// Upload this to the server so others can add you to groups.

@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../src/rust/api/crypto.dart';
 import 'api_service.dart';
@@ -16,16 +17,72 @@ class CryptoService {
   // Maps server group IDs (strings) -> MLS group IDs (bytes)
   final Map<String, Uint8List> _groupIdMap = {};
 
+  // Secure storage for MLS state persistence (P0-03).
+  // On Android uses Keystore-backed EncryptedSharedPreferences.
+  // On iOS uses Keychain (when flutter_secure_storage_darwin is fixed).
+  static final _secureStorage = FlutterSecureStorage(
+    aOptions: const AndroidOptions(encryptedSharedPreferences: true),
+  );
+  static const _stateKey = 'mls_crypto_state';
+  static const _mapKey = 'mls_group_id_map';
+
   CryptoService(this._api);
 
   bool get isInitialized => _crypto != null;
 
-  /// Initialize MLS crypto for this user identity and upload key packages.
+  /// Initialize MLS crypto: try to restore persisted state first, fall back to fresh.
   Future<void> init(String identity) async {
     _identity = identity;
-    _crypto = await PointCryptoHandle.newInstance(identity: identity);
+    _crypto = await _loadOrCreate(identity);
     debugPrint('[Crypto] MLS initialized for $identity');
+    await _saveState();
     await _uploadKeyPackages();
+  }
+
+  Future<PointCryptoHandle> _loadOrCreate(String identity) async {
+    try {
+      final saved = await _secureStorage.read(key: '${_stateKey}_$identity');
+      if (saved != null) {
+        final stateBytes = base64Decode(saved);
+        final handle = await PointCryptoHandle.newFromState(stateBytes: stateBytes);
+        // Restore the server group ID -> MLS group ID map.
+        final mapJson = await _secureStorage.read(key: '${_mapKey}_$identity');
+        if (mapJson != null) {
+          final decoded = jsonDecode(mapJson) as Map<String, dynamic>;
+          decoded.forEach((serverId, b64) {
+            _groupIdMap[serverId] = base64Decode(b64 as String);
+          });
+        }
+        debugPrint('[Crypto] Restored MLS state (${_groupIdMap.length} groups)');
+        return handle;
+      }
+    } catch (e) {
+      debugPrint('[Crypto] Could not restore MLS state ($e) — creating fresh');
+      _groupIdMap.clear();
+    }
+    return PointCryptoHandle.newInstance(identity: identity);
+  }
+
+  /// Persist current MLS state to secure storage. Call after every mutation.
+  Future<void> _saveState() async {
+    if (_crypto == null || _identity == null) return;
+    try {
+      final stateBytes = await _crypto!.exportState();
+      await _secureStorage.write(
+        key: '${_stateKey}_$_identity',
+        value: base64Encode(stateBytes),
+      );
+      // Persist the group ID map so restored sessions can resolve groups.
+      final mapToStore = _groupIdMap.map(
+        (k, v) => MapEntry(k, base64Encode(v)),
+      );
+      await _secureStorage.write(
+        key: '${_mapKey}_$_identity',
+        value: jsonEncode(mapToStore),
+      );
+    } catch (e) {
+      debugPrint('[Crypto] Failed to save MLS state: $e');
+    }
   }
 
   /// Upload fresh key packages so others can add us to groups.
@@ -155,6 +212,7 @@ class CryptoService {
     final gid = await crypto.createGroup(groupId: utf8.encode(serverGroupId));
     _groupIdMap[serverGroupId] = Uint8List.fromList(gid);
     debugPrint('[Crypto] Created MLS group for $serverGroupId');
+    await _saveState();
     return Uint8List.fromList(gid);
   }
 
@@ -170,6 +228,7 @@ class CryptoService {
       keyPackageBytes: keyPackageBytes.toList(),
     );
     debugPrint('[Crypto] Added member to $serverGroupId');
+    await _saveState();
     return result;
   }
 
@@ -182,6 +241,7 @@ class CryptoService {
     final gid = await crypto.processWelcome(welcomeBytes: welcomeBytes.toList());
     _groupIdMap[serverGroupId] = Uint8List.fromList(gid);
     debugPrint('[Crypto] Joined MLS group $serverGroupId via Welcome');
+    await _saveState();
   }
 
   /// Process an MLS Commit message to advance group epoch.
@@ -196,6 +256,7 @@ class CryptoService {
       groupId: gid.toList(),
       commitBytes: commitBytes.toList(),
     );
+    await _saveState();
   }
 
   /// Encrypt location data for a group. Returns base64-encoded ciphertext,
@@ -220,7 +281,10 @@ class CryptoService {
     return base64Encode(ciphertext);
   }
 
-  /// Decrypt a base64-encoded blob. Returns the decoded JSON map.
+  /// Decrypt a base64-encoded MLS blob. Returns the decoded JSON map.
+  /// Throws if MLS is not ready or decryption fails — callers must skip the
+  /// update rather than accept plaintext. No plaintext fallback (P0-03):
+  /// accepting unencrypted blobs would let an attacker inject fake locations.
   Future<Map<String, dynamic>> decrypt(
     String serverGroupId,
     String blob,
@@ -228,32 +292,22 @@ class CryptoService {
     final bytes = base64Decode(blob);
 
     if (!isInitialized) {
-      return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
+      throw StateError('MLS not initialized — cannot decrypt');
     }
 
     final gid = _groupIdMap[serverGroupId];
-
     if (gid == null) {
-      try {
-        return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-      } catch (_) {
-        debugPrint('[Crypto] Cannot decrypt blob for $serverGroupId: no MLS group and not plaintext');
-        rethrow;
-      }
+      throw StateError(
+        'No MLS group for $serverGroupId — key exchange pending or lost',
+      );
     }
 
-    try {
-      final crypto = _requireCrypto();
-      final plaintext = await crypto.decrypt(
-        groupId: gid.toList(),
-        ciphertext: bytes,
-      );
-      return jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
-    } catch (e) {
-      // If MLS decrypt fails, try as plaintext (migration period)
-      debugPrint('[Crypto] MLS decrypt failed, trying plaintext: $e');
-      return jsonDecode(utf8.decode(bytes)) as Map<String, dynamic>;
-    }
+    final crypto = _requireCrypto();
+    final plaintext = await crypto.decrypt(
+      groupId: gid.toList(),
+      ciphertext: bytes,
+    );
+    return jsonDecode(utf8.decode(plaintext)) as Map<String, dynamic>;
   }
 
   /// Check if we have an MLS group for a server ID.

@@ -30,6 +30,11 @@ abstract class PointCryptoHandle implements RustOpaqueInterface {
     required List<int> plaintext,
   });
 
+  /// Export all MLS state to bytes for durable storage by the caller.
+  /// Call this after every mutation (create_group, add_member, process_welcome,
+  /// process_commit) and persist the result in platform secure storage.
+  Future<Uint8List> exportState();
+
   /// Generate a serialized KeyPackage for key exchange.
   /// Upload this to the server so others can add you to groups.
   Future<Uint8List> generateKeyPackage();
@@ -46,6 +51,14 @@ abstract class PointCryptoHandle implements RustOpaqueInterface {
       RustLib.instance.api.crateApiCryptoPointCryptoHandleNew(
         identity: identity,
       );
+
+  /// Restore a previously exported MLS state. Falls back to a fresh instance
+  /// on error — callers should re-join groups via the normal Welcome flow.
+  static Future<PointCryptoHandle> newFromState({
+    required List<int> stateBytes,
+  }) => RustLib.instance.api.crateApiCryptoPointCryptoHandleNewFromState(
+    stateBytes: stateBytes,
+  );
 
   /// Process an MLS Commit message to stay in sync with group epoch changes.
   Future<void> processCommit({

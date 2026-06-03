@@ -2,13 +2,45 @@ pub mod crypto;
 pub mod errors;
 pub mod types;
 
-pub use crypto::PointCrypto;
+pub use crypto::{PointCrypto, PointCryptoState};
 pub use errors::PointCryptoError;
 pub use types::*;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_state_export_restore() {
+        // Alice creates a group and adds Bob.
+        let mut alice = PointCrypto::new("alice@example.com").unwrap();
+        let mut bob = PointCrypto::new("bob@example.com").unwrap();
+        let bob_kp = bob.generate_key_package().unwrap();
+        let gid = alice.create_group(b"persist-test-group").unwrap();
+        let add = alice.add_member(&gid, &bob_kp).unwrap();
+        bob.process_welcome(&add.welcome).unwrap();
+
+        // Alice exports state, simulating an app restart.
+        let state = alice.export_state().unwrap();
+        assert!(!state.is_empty());
+
+        // Alice is restored from state.
+        let mut alice2 = PointCrypto::restore(&state).unwrap();
+        assert!(alice2.has_group(&gid));
+
+        // Restored Alice can still encrypt and Bob can decrypt.
+        let msg = b"location after restart";
+        let ct = alice2.encrypt(&gid, msg).unwrap();
+        let bob_gid: Vec<u8> = bob.export_state()
+            .map(|s| serde_json::from_slice::<crate::crypto::PointCryptoState>(&s).unwrap().group_ids)
+            .unwrap_or_default()
+            .first()
+            .map(|hex_id| hex::decode(hex_id).unwrap())
+            .unwrap_or_default();
+        let pt = bob.decrypt(&bob_gid, &ct).unwrap();
+        assert_eq!(pt, msg);
+        println!("State export/restore roundtrip ✓ ({} bytes state)", state.len());
+    }
 
     #[test]
     fn test_key_package_generation() {
