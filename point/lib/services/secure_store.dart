@@ -1,26 +1,33 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Centralizes at-rest storage of sensitive local data (auth tokens, MLS state,
-/// location cache, learned zones) — P1-13.
+/// location cache, learned zones) — P0-01 / P1-13.
 ///
-/// On Android, values are stored in Keystore-backed encrypted storage. On iOS,
-/// flutter_secure_storage_darwin currently crashes on iOS 26 (excluded via the
-/// Podfile patch), so we fall back to SharedPreferences there. That iOS gap is
-/// tracked with P0-01 — iOS is not yet privacy-equivalent. When a real Keychain
-/// MethodChannel lands, only this file changes.
+/// - Android: Keystore-backed encrypted storage via flutter_secure_storage.
+/// - iOS: native Keychain via a MethodChannel (KeychainChannel.swift), because
+///   flutter_secure_storage_darwin crashes on iOS 26.
+/// - Other/unknown platforms: SharedPreferences fallback.
 class SecureStore {
+  static const _keychain = MethodChannel('dev.petalcat.point/keychain');
+
   static final _secure = const FlutterSecureStorage(
     aOptions: AndroidOptions(encryptedSharedPreferences: true),
   );
 
-  /// Whether platform-secure (encrypted) storage is available.
-  static bool get isEncrypted => defaultTargetPlatform == TargetPlatform.android;
+  static bool get _isAndroid => defaultTargetPlatform == TargetPlatform.android;
+  static bool get _isIOS => defaultTargetPlatform == TargetPlatform.iOS;
+
+  /// Whether values are stored in platform-secure (encrypted) storage.
+  static bool get isEncrypted => _isAndroid || _isIOS;
 
   static Future<void> write(String key, String value) async {
-    if (isEncrypted) {
+    if (_isAndroid) {
       await _secure.write(key: key, value: value);
+    } else if (_isIOS) {
+      await _keychain.invokeMethod('write', {'key': key, 'value': value});
     } else {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(key, value);
@@ -28,8 +35,11 @@ class SecureStore {
   }
 
   static Future<String?> read(String key) async {
-    if (isEncrypted) {
+    if (_isAndroid) {
       return _secure.read(key: key);
+    } else if (_isIOS) {
+      final v = await _keychain.invokeMethod<String?>('read', {'key': key});
+      return v;
     } else {
       final prefs = await SharedPreferences.getInstance();
       return prefs.getString(key);
@@ -37,8 +47,10 @@ class SecureStore {
   }
 
   static Future<void> delete(String key) async {
-    if (isEncrypted) {
+    if (_isAndroid) {
       await _secure.delete(key: key);
+    } else if (_isIOS) {
+      await _keychain.invokeMethod('delete', {'key': key});
     } else {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(key);
@@ -50,16 +62,15 @@ class SecureStore {
   /// used to live in SharedPreferences before P1-13 (cache, zones).
   static Future<String?> readMigrating(String key) async {
     if (!isEncrypted) {
-      // iOS path is already SharedPreferences-backed; nothing to migrate.
       return read(key);
     }
-    final secure = await _secure.read(key: key);
+    final secure = await read(key);
     if (secure != null) return secure;
     // Fall back to a legacy plaintext value and migrate it.
     final prefs = await SharedPreferences.getInstance();
     final legacy = prefs.getString(key);
     if (legacy != null) {
-      await _secure.write(key: key, value: legacy);
+      await write(key, legacy);
       await prefs.remove(key); // wipe plaintext original
       return legacy;
     }

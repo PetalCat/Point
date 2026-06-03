@@ -2,10 +2,10 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../src/rust/api/crypto.dart';
 import 'api_service.dart';
+import 'secure_store.dart';
 
 /// Manages MLS encryption state for the current user.
 /// Wraps the Rust PointCryptoHandle via flutter_rust_bridge.
@@ -17,12 +17,7 @@ class CryptoService {
   // Maps server group IDs (strings) -> MLS group IDs (bytes)
   final Map<String, Uint8List> _groupIdMap = {};
 
-  // Secure storage for MLS state persistence (P0-03).
-  // On Android uses Keystore-backed EncryptedSharedPreferences.
-  // On iOS uses Keychain (when flutter_secure_storage_darwin is fixed).
-  static final _secureStorage = FlutterSecureStorage(
-    aOptions: const AndroidOptions(encryptedSharedPreferences: true),
-  );
+  // MLS state persisted via SecureStore (P0-03): Android Keystore, iOS Keychain.
   static const _stateKey = 'mls_crypto_state';
   static const _mapKey = 'mls_group_id_map';
 
@@ -41,12 +36,12 @@ class CryptoService {
 
   Future<PointCryptoHandle> _loadOrCreate(String identity) async {
     try {
-      final saved = await _secureStorage.read(key: '${_stateKey}_$identity');
+      final saved = await SecureStore.read('${_stateKey}_$identity');
       if (saved != null) {
         final stateBytes = base64Decode(saved);
         final handle = await PointCryptoHandle.newFromState(stateBytes: stateBytes);
         // Restore the server group ID -> MLS group ID map.
-        final mapJson = await _secureStorage.read(key: '${_mapKey}_$identity');
+        final mapJson = await SecureStore.read('${_mapKey}_$identity');
         if (mapJson != null) {
           final decoded = jsonDecode(mapJson) as Map<String, dynamic>;
           decoded.forEach((serverId, b64) {
@@ -68,17 +63,17 @@ class CryptoService {
     if (_crypto == null || _identity == null) return;
     try {
       final stateBytes = await _crypto!.exportState();
-      await _secureStorage.write(
-        key: '${_stateKey}_$_identity',
-        value: base64Encode(stateBytes),
+      await SecureStore.write(
+        '${_stateKey}_$_identity',
+        base64Encode(stateBytes),
       );
       // Persist the group ID map so restored sessions can resolve groups.
       final mapToStore = _groupIdMap.map(
         (k, v) => MapEntry(k, base64Encode(v)),
       );
-      await _secureStorage.write(
-        key: '${_mapKey}_$_identity',
-        value: jsonEncode(mapToStore),
+      await SecureStore.write(
+        '${_mapKey}_$_identity',
+        jsonEncode(mapToStore),
       );
     } catch (e) {
       debugPrint('[Crypto] Failed to save MLS state: $e');
