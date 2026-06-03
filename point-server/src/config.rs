@@ -19,4 +19,9 @@ pub struct Config {
     /// should stay hidden until finished (P1-16).
     #[arg(long, env = "ENABLE_BRIDGES", default_value = "false")]
     pub enable_bridges: bool,
+    /// Trust x-real-ip / x-forwarded-for headers for rate limiting. Only enable
+    /// when behind a reverse proxy that SETS these headers (Traefik/Caddy/nginx)
+    /// — otherwise a client can spoof them to evade IP rate limits (P2-19).
+    #[arg(long, env = "TRUST_PROXY_HEADERS", default_value = "false")]
+    pub trust_proxy_headers: bool,
 }

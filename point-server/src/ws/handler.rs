@@ -101,10 +101,17 @@ pub async fn handle_connection(ws: WebSocket, claims: Claims, state: AppState, h
     tracing::info!(user_id = %user_id, conn_id = %conn_id, "ws disconnected");
 }
 
-/// Simple per-user rate limiter. Returns true if the message should be dropped.
-fn rate_limited(counters: &mut std::collections::HashMap<String, (u32, std::time::Instant)>, msg_type: &str) -> bool {
+/// Per-user rate limiter keyed by category. `cost` is the number of effective
+/// writes this message represents — a batch of N fixes costs N, not 1, so a
+/// client can't bypass the location write-rate by batching (P2-19).
+/// Returns true if the message should be dropped.
+fn rate_limited(
+    counters: &mut std::collections::HashMap<String, (u32, std::time::Instant)>,
+    msg_type: &str,
+    cost: u32,
+) -> bool {
     let (max_per_min, key) = match msg_type {
-        "location.update" | "location.batch_update" => (60, "loc"),
+        "location.update" | "location.batch_update" => (120, "loc"),
         "location.nudge" => (10, "nudge"),
         "presence.update" => (30, "pres"),
         _ => (120, "other"),
@@ -112,11 +119,11 @@ fn rate_limited(counters: &mut std::collections::HashMap<String, (u32, std::time
 
     let entry = counters.entry(key.to_string()).or_insert((0, std::time::Instant::now()));
     if entry.1.elapsed() > std::time::Duration::from_secs(60) {
-        // Reset window
-        *entry = (1, std::time::Instant::now());
-        return false;
+        // Reset window — this message's cost starts the new window.
+        *entry = (cost, std::time::Instant::now());
+        return cost > max_per_min;
     }
-    entry.0 += 1;
+    entry.0 = entry.0.saturating_add(cost);
     entry.0 > max_per_min
 }
 
@@ -135,8 +142,14 @@ async fn process_message(
         }
     };
 
-    if rate_limited(rate_counters, &envelope.msg_type) {
-        tracing::warn!(user_id = %user_id, msg_type = %envelope.msg_type, "rate limited");
+    // A batch's cost is the number of fixes it carries; everything else is 1.
+    let cost = if envelope.msg_type == "location.batch_update" {
+        envelope.encrypted_blobs.as_ref().map_or(1, |b| b.len().max(1) as u32)
+    } else {
+        1
+    };
+    if rate_limited(rate_counters, &envelope.msg_type, cost) {
+        tracing::warn!(user_id = %user_id, msg_type = %envelope.msg_type, cost, "rate limited");
         return;
     }
 

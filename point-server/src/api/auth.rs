@@ -12,6 +12,19 @@ use jsonwebtoken::{encode, DecodingKey, EncodingKey, Header, Validation};
 use crate::db;
 use crate::error::AppError;
 
+/// Extract a trusted client IP for rate limiting. Returns None unless the
+/// server is configured to trust proxy headers (P2-19) — otherwise the header
+/// is attacker-controlled and must not key the rate limiter.
+fn trusted_client_ip(state: &AppState, headers: &axum::http::HeaderMap) -> Option<String> {
+    if !state.config.trust_proxy_headers {
+        return None;
+    }
+    headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string())
+}
+
 /// Shared password policy — used at registration AND password change so the
 /// two can't drift (P2-19).
 fn validate_password(password: &str) -> Result<(), AppError> {
@@ -132,7 +145,7 @@ pub async fn register(
 ) -> Result<Json<AuthResponse>, AppError> {
     check_auth_rate_limit(&req.username)?;
     check_registration_rate_limit()?;
-    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+    if let Some(ip) = trusted_client_ip(&state, &headers) {
         check_auth_rate_limit(&format!("ip:{}", ip))?;
     }
     if req.username.is_empty() || req.password.is_empty() {
@@ -229,8 +242,8 @@ pub async fn login(
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<AuthResponse>, AppError> {
     check_auth_rate_limit(&req.username)?;
-    // IP-based rate limit — 20 auth attempts per minute per IP
-    if let Some(ip) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
+    // IP-based rate limit — only when proxy headers are trusted (P2-19).
+    if let Some(ip) = trusted_client_ip(&state, &headers) {
         check_auth_rate_limit(&format!("ip:{}", ip))?;
     }
     // Reject oversized passwords before Argon2 hashing — prevents CPU DoS

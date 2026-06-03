@@ -11,6 +11,8 @@ services:
       DOMAIN: "pointdev.petalcat.dev"
       OPEN_REGISTRATION: "true"
       JWT_SECRET: "${JWT_SECRET:?required — set a 256-bit random hex in your shell or .env}"
+      # This dev server sits behind Traefik, which sets x-real-ip — safe to trust (P2-19).
+      TRUST_PROXY_HEADERS: "true"
     restart: unless-stopped
 
 volumes:
