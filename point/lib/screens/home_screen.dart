@@ -115,7 +115,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     await groupNotifier.loadGroups();
     final groups = ref.read(groupProvider);
     final myId = auth.userId ?? '';
-    locationNotifier.setActiveGroups(_sharingGroupIds(groups.groups, myId));
+    locationNotifier.setActiveGroups(
+      _sharingGroupIds(groups.groups, myId),
+      precision: _groupPrecision(groups.groups, myId),
+    );
 
     // Set up MLS encryption for all groups
     await groupNotifier.setupEncryptionForAllGroups(auth.userId ?? '');
@@ -172,7 +175,25 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
             .map((s) => s['to_user_id'] as String? ?? '')
             .where((s) => s.isNotEmpty)
             .toList();
-        locationNotifier.setActiveUserIds([...permanentIds, ...tempIds]);
+        // Build per-user precision: permanent shares default exact, temp shares
+        // carry their own precision setting.
+        final userPrecision = <String, String>{};
+        for (final s in sharingState.shares) {
+          final uid = s['user_id'] as String? ?? '';
+          if (uid.isNotEmpty) {
+            userPrecision[uid] = s['precision'] as String? ?? 'exact';
+          }
+        }
+        for (final s in sharingState.tempShares) {
+          final uid = s['to_user_id'] as String? ?? '';
+          if (uid.isNotEmpty) {
+            userPrecision[uid] = s['precision'] as String? ?? 'exact';
+          }
+        }
+        locationNotifier.setActiveUserIds(
+          [...permanentIds, ...tempIds],
+          precision: userPrecision,
+        );
         // Establish MLS pairwise groups for temp share recipients.
         final myId = auth.userId ?? '';
         if (myId.isNotEmpty) {
@@ -206,6 +227,20 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         .where((g) => g.members.any((m) => m.userId == myId && m.sharing))
         .map<String>((g) => g.id as String)
         .toList();
+  }
+
+  /// My configured sharing precision for each group (defaults to 'exact').
+  static Map<String, String> _groupPrecision(List<dynamic> groups, String myId) {
+    final map = <String, String>{};
+    for (final g in groups) {
+      for (final m in g.members) {
+        if (m.userId == myId) {
+          map[g.id as String] = m.precision as String? ?? 'exact';
+          break;
+        }
+      }
+    }
+    return map;
   }
 
   @override

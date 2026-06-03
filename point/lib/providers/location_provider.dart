@@ -441,9 +441,10 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   /// Send a single location fix to all active recipients (foreground path).
+  /// Coordinates are reduced to each audience's configured precision BEFORE
+  /// encryption, so approximate/city recipients can never decrypt exact GPS.
   Future<void> _sendSingleFix(LocationData locationData) async {
     final ghostState = ref.read(ghostProvider);
-    final locationJson = locationData.toJson();
     final cryptoService = ref.read(cryptoServiceProvider);
     final wsService = ref.read(wsServiceProvider);
 
@@ -451,7 +452,9 @@ class LocationNotifier extends Notifier<LocationState> {
     for (final groupId in state.activeGroupIds) {
       if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
-        final blob = await cryptoService.encrypt(groupId, locationJson);
+        final precision = state.sharePrecision[groupId] ?? 'exact';
+        final payload = locationData.withPrecision(precision).toJson();
+        final blob = await cryptoService.encrypt(groupId, payload);
         if (blob == null) continue; // MLS not ready for this group yet
         wsService.sendLocationUpdate(
           recipientType: 'group',
@@ -470,10 +473,12 @@ class LocationNotifier extends Notifier<LocationState> {
     for (final userId in state.activeUserIds) {
       if (ghostState.isGhostedForGroup(userId)) continue;
       try {
+        final precision = state.sharePrecision[userId] ?? 'exact';
+        final payload = locationData.withPrecision(precision).toJson();
         final encryptId = state.myUserId != null
             ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
             : userId;
-        final blob = await cryptoService.encrypt(encryptId, locationJson);
+        final blob = await cryptoService.encrypt(encryptId, payload);
         if (blob == null) continue; // MLS not ready for this pair yet
         wsService.sendLocationUpdate(
           recipientType: 'user',
@@ -507,11 +512,13 @@ class LocationNotifier extends Notifier<LocationState> {
     for (final groupId in state.activeGroupIds) {
       if (ghostState.isGhostedForGroup(groupId)) continue;
       try {
+        final precision = state.sharePrecision[groupId] ?? 'exact';
         final blobs = <String>[];
         final timestamps = <int>[];
         bool anyNull = false;
         for (final fix in batch) {
-          final blob = await cryptoService.encrypt(groupId, fix.toJson());
+          final payload = fix.withPrecision(precision).toJson();
+          final blob = await cryptoService.encrypt(groupId, payload);
           if (blob == null) { anyNull = true; break; }
           blobs.add(blob);
           timestamps.add(fix.timestamp);
@@ -533,6 +540,7 @@ class LocationNotifier extends Notifier<LocationState> {
     for (final userId in state.activeUserIds) {
       if (ghostState.isGhostedForGroup(userId)) continue;
       try {
+        final precision = state.sharePrecision[userId] ?? 'exact';
         final encryptId = state.myUserId != null
             ? cryptoService.pairwiseGroupId(state.myUserId!, userId)
             : userId;
@@ -540,7 +548,8 @@ class LocationNotifier extends Notifier<LocationState> {
         final timestamps = <int>[];
         bool anyNull = false;
         for (final fix in batch) {
-          final blob = await cryptoService.encrypt(encryptId, fix.toJson());
+          final payload = fix.withPrecision(precision).toJson();
+          final blob = await cryptoService.encrypt(encryptId, payload);
           if (blob == null) { anyNull = true; break; }
           blobs.add(blob);
           timestamps.add(fix.timestamp);
@@ -680,13 +689,23 @@ class LocationNotifier extends Notifier<LocationState> {
     }
   }
 
-  void setActiveGroups(List<String> groupIds) {
-    state = state.copyWith(activeGroupIds: List.from(groupIds));
+  void setActiveGroups(List<String> groupIds, {Map<String, String>? precision}) {
+    final merged = Map<String, String>.from(state.sharePrecision);
+    if (precision != null) merged.addAll(precision);
+    state = state.copyWith(
+      activeGroupIds: List.from(groupIds),
+      sharePrecision: merged,
+    );
     _autoWake();
   }
 
-  void setActiveUserIds(List<String> userIds) {
-    state = state.copyWith(activeUserIds: List.from(userIds));
+  void setActiveUserIds(List<String> userIds, {Map<String, String>? precision}) {
+    final merged = Map<String, String>.from(state.sharePrecision);
+    if (precision != null) merged.addAll(precision);
+    state = state.copyWith(
+      activeUserIds: List.from(userIds),
+      sharePrecision: merged,
+    );
     _autoWake();
   }
 

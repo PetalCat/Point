@@ -96,6 +96,9 @@ class LocationState {
   final String? myUserId;
   final List<String> activeGroupIds;
   final List<String> activeUserIds;
+  /// Per-audience precision: maps group ID or user ID -> 'exact'|'approximate'|'city'.
+  /// The precision at which *I* share my location to that audience (P0-05).
+  final Map<String, String> sharePrecision;
   final Set<String> zoneConsentedUsers;
   final LocationActivity activity;
   final LearnedZone? currentZone;
@@ -117,6 +120,7 @@ class LocationState {
     this.myUserId,
     this.activeGroupIds = const [],
     this.activeUserIds = const [],
+    this.sharePrecision = const {},
     this.zoneConsentedUsers = const {},
     this.activity = LocationActivity.sleeping,
     this.currentZone,
@@ -134,6 +138,7 @@ class LocationState {
     String? myUserId,
     List<String>? activeGroupIds,
     List<String>? activeUserIds,
+    Map<String, String>? sharePrecision,
     Set<String>? zoneConsentedUsers,
     LocationActivity? activity,
     LearnedZone? currentZone,
@@ -154,6 +159,7 @@ class LocationState {
       myUserId: myUserId ?? this.myUserId,
       activeGroupIds: activeGroupIds ?? this.activeGroupIds,
       activeUserIds: activeUserIds ?? this.activeUserIds,
+      sharePrecision: sharePrecision ?? this.sharePrecision,
       zoneConsentedUsers: zoneConsentedUsers ?? this.zoneConsentedUsers,
       activity: activity ?? this.activity,
       currentZone: clearCurrentZone ? null : (currentZone ?? this.currentZone),
