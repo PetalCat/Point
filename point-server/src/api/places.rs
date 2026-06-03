@@ -16,6 +16,9 @@ pub struct CreatePlaceRequest {
     pub lon: Option<f64>,
     pub radius: Option<f64>,
     pub polygon_points: Option<Vec<LatLon>>,
+    /// MLS-encrypted geometry blob (base64). When present, the server stores
+    /// only this and zeros the plaintext geometry columns (P0-06).
+    pub encrypted_geometry: Option<String>,
 }
 
 fn default_geometry_type() -> String {
@@ -42,6 +45,7 @@ pub struct PlaceResponse {
     pub created_at: String,
     pub user_id: Option<String>,
     pub is_personal: bool,
+    pub encrypted_geometry: Option<String>,
 }
 
 fn place_to_response(p: db::places::Place) -> PlaceResponse {
@@ -63,6 +67,7 @@ fn place_to_response(p: db::places::Place) -> PlaceResponse {
         created_at: p.created_at,
         user_id: p.user_id,
         is_personal: p.is_personal,
+        encrypted_geometry: p.encrypted_geometry,
     }
 }
 
@@ -102,37 +107,38 @@ pub async fn create(
     let triggers = r#"["enter","exit"]"#;
     let geometry_type = req.geometry_type.as_str();
 
-    // Validate based on geometry type
-    match geometry_type {
-        "circle" => {
-            if req.lat.is_none() || req.lon.is_none() {
-                return Err(AppError::BadRequest("circle requires lat and lon".into()));
-            }
-        }
-        "polygon" => {
-            match &req.polygon_points {
-                Some(pts) if pts.len() >= 3 => {}
-                _ => {
-                    return Err(AppError::BadRequest(
-                        "polygon requires at least 3 points".into(),
-                    ));
+    if geometry_type != "circle" && geometry_type != "polygon" {
+        return Err(AppError::BadRequest(
+            "geometry_type must be 'circle' or 'polygon'".into(),
+        ));
+    }
+
+    // When geometry is encrypted, the server never sees coordinates — skip
+    // plaintext validation and store zeros. Otherwise validate as before.
+    if req.encrypted_geometry.is_none() {
+        match geometry_type {
+            "circle" => {
+                if req.lat.is_none() || req.lon.is_none() {
+                    return Err(AppError::BadRequest("circle requires lat and lon".into()));
                 }
             }
-        }
-        _ => {
-            return Err(AppError::BadRequest(
-                "geometry_type must be 'circle' or 'polygon'".into(),
-            ));
+            "polygon" => match &req.polygon_points {
+                Some(pts) if pts.len() >= 3 => {}
+                _ => return Err(AppError::BadRequest("polygon requires at least 3 points".into())),
+            },
+            _ => unreachable!(),
         }
     }
 
-    let lat = req.lat.unwrap_or(0.0);
-    let lon = req.lon.unwrap_or(0.0);
-    let radius = req.radius.unwrap_or(100.0);
-    let polygon_json = req
-        .polygon_points
-        .as_ref()
-        .map(|pts| serde_json::to_string(pts).unwrap());
+    let encrypted = req.encrypted_geometry.is_some();
+    let lat = if encrypted { 0.0 } else { req.lat.unwrap_or(0.0) };
+    let lon = if encrypted { 0.0 } else { req.lon.unwrap_or(0.0) };
+    let radius = if encrypted { 0.0 } else { req.radius.unwrap_or(100.0) };
+    let polygon_json = if encrypted {
+        None
+    } else {
+        req.polygon_points.as_ref().map(|pts| serde_json::to_string(pts).unwrap())
+    };
 
     let place = db::places::create_place(
         &state.pool,
@@ -147,6 +153,7 @@ pub async fn create(
         triggers,
         None,
         false,
+        req.encrypted_geometry.as_deref(),
     )
     .await?;
 
@@ -212,36 +219,36 @@ pub async fn create_personal(
     let triggers = r#"["enter","exit"]"#;
     let geometry_type = req.geometry_type.as_str();
 
-    match geometry_type {
-        "circle" => {
-            if req.lat.is_none() || req.lon.is_none() {
-                return Err(AppError::BadRequest("circle requires lat and lon".into()));
-            }
-        }
-        "polygon" => {
-            match &req.polygon_points {
-                Some(pts) if pts.len() >= 3 => {}
-                _ => {
-                    return Err(AppError::BadRequest(
-                        "polygon requires at least 3 points".into(),
-                    ));
+    if geometry_type != "circle" && geometry_type != "polygon" {
+        return Err(AppError::BadRequest(
+            "geometry_type must be 'circle' or 'polygon'".into(),
+        ));
+    }
+
+    if req.encrypted_geometry.is_none() {
+        match geometry_type {
+            "circle" => {
+                if req.lat.is_none() || req.lon.is_none() {
+                    return Err(AppError::BadRequest("circle requires lat and lon".into()));
                 }
             }
-        }
-        _ => {
-            return Err(AppError::BadRequest(
-                "geometry_type must be 'circle' or 'polygon'".into(),
-            ));
+            "polygon" => match &req.polygon_points {
+                Some(pts) if pts.len() >= 3 => {}
+                _ => return Err(AppError::BadRequest("polygon requires at least 3 points".into())),
+            },
+            _ => unreachable!(),
         }
     }
 
-    let lat = req.lat.unwrap_or(0.0);
-    let lon = req.lon.unwrap_or(0.0);
-    let radius = req.radius.unwrap_or(100.0);
-    let polygon_json = req
-        .polygon_points
-        .as_ref()
-        .map(|pts| serde_json::to_string(pts).unwrap());
+    let encrypted = req.encrypted_geometry.is_some();
+    let lat = if encrypted { 0.0 } else { req.lat.unwrap_or(0.0) };
+    let lon = if encrypted { 0.0 } else { req.lon.unwrap_or(0.0) };
+    let radius = if encrypted { 0.0 } else { req.radius.unwrap_or(100.0) };
+    let polygon_json = if encrypted {
+        None
+    } else {
+        req.polygon_points.as_ref().map(|pts| serde_json::to_string(pts).unwrap())
+    };
 
     let place = db::places::create_place(
         &state.pool,
@@ -256,6 +263,7 @@ pub async fn create_personal(
         triggers,
         Some(&auth.user_id),
         true,
+        req.encrypted_geometry.as_deref(),
     )
     .await?;
 

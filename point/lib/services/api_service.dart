@@ -362,9 +362,13 @@ class ApiService {
     double? lon,
     double? radius,
     List<Map<String, double>>? polygonPoints,
+    String? encryptedGeometry,
   }) async {
     final body = <String, dynamic>{'name': name, 'geometry_type': geometryType};
-    if (geometryType == 'circle') {
+    if (encryptedGeometry != null) {
+      // P0-06: geometry travels encrypted; server stores no plaintext coords.
+      body['encrypted_geometry'] = encryptedGeometry;
+    } else if (geometryType == 'circle') {
       body['lat'] = lat;
       body['lon'] = lon;
       body['radius'] = radius;
@@ -393,13 +397,16 @@ class ApiService {
     double? lon,
     double? radius,
     List<Map<String, double>>? polygonPoints,
+    String? encryptedGeometry,
   }) async {
     final body = <String, dynamic>{
       'name': name,
       'geometry_type': geometryType,
       'is_personal': true,
     };
-    if (geometryType == 'circle') {
+    if (encryptedGeometry != null) {
+      body['encrypted_geometry'] = encryptedGeometry;
+    } else if (geometryType == 'circle') {
       body['lat'] = lat;
       body['lon'] = lon;
       body['radius'] = radius;

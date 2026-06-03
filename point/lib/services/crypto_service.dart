@@ -203,6 +203,60 @@ class CryptoService {
   String pairwiseGroupId(String userA, String userB) => _pairwiseGroupId(userA, userB);
 
   // ============================================================
+  // Place geometry encryption (P0-06)
+  // ============================================================
+
+  /// A self-only MLS group used to encrypt personal place geometry so the
+  /// server never sees home/work coordinates.
+  String _selfGroupId(String myUserId) => 'self:$myUserId';
+
+  /// Ensure the self-group exists for encrypting personal places.
+  Future<void> ensureSelfGroup(String myUserId) async {
+    if (!isInitialized) return;
+    final gid = _selfGroupId(myUserId);
+    if (hasGroup(gid)) return;
+    try {
+      await createGroup(gid);
+      debugPrint('[Crypto] Self group created for personal places');
+    } catch (e) {
+      debugPrint('[Crypto] Failed to create self group: $e');
+    }
+  }
+
+  /// Encrypt place geometry for a group place. Returns base64 blob or null.
+  Future<String?> encryptGroupPlace(
+    String serverGroupId,
+    Map<String, dynamic> geometry,
+  ) async {
+    return encrypt(serverGroupId, geometry);
+  }
+
+  /// Encrypt place geometry for a personal place using the self group.
+  Future<String?> encryptPersonalPlace(
+    String myUserId,
+    Map<String, dynamic> geometry,
+  ) async {
+    await ensureSelfGroup(myUserId);
+    return encrypt(_selfGroupId(myUserId), geometry);
+  }
+
+  /// Decrypt place geometry. [ownerKey] is the group ID for group places or
+  /// the owner's user ID for personal places. Returns null on failure.
+  Future<Map<String, dynamic>?> decryptPlace(
+    String serverGroupId,
+    String blob,
+  ) async {
+    try {
+      return await decrypt(serverGroupId, blob);
+    } catch (e) {
+      debugPrint('[Crypto] Failed to decrypt place geometry: $e');
+      return null;
+    }
+  }
+
+  String selfGroupId(String myUserId) => _selfGroupId(myUserId);
+
+  // ============================================================
   // Low-level MLS operations
   // ============================================================
 

@@ -18,6 +18,9 @@ pub struct Place {
     pub created_at: String,
     pub user_id: Option<String>,
     pub is_personal: bool,
+    /// MLS-encrypted geometry blob (base64). When present, lat/lon/radius/
+    /// polygon are zeroed and the real geometry lives here (P0-06).
+    pub encrypted_geometry: Option<String>,
 }
 
 pub async fn create_place(
@@ -33,11 +36,13 @@ pub async fn create_place(
     triggers: &str,
     user_id: Option<&str>,
     is_personal: bool,
+    encrypted_geometry: Option<&str>,
 ) -> Result<Place, sqlx::Error> {
-    // Store an empty blob for encrypted_definition since we use lat/lon/radius directly
+    // When the client supplies encrypted_geometry, lat/lon/radius/polygon are
+    // zeroed — the real geometry lives only in the encrypted blob (P0-06).
     sqlx::query(
-        "INSERT INTO places (id, group_id, name, encrypted_definition, lat, lon, radius, geometry_type, polygon_points, triggers, user_id, is_personal) \
-         VALUES (?, ?, ?, X'', ?, ?, ?, ?, ?, ?, ?, ?)",
+        "INSERT INTO places (id, group_id, name, encrypted_definition, lat, lon, radius, geometry_type, polygon_points, triggers, user_id, is_personal, encrypted_geometry) \
+         VALUES (?, ?, ?, X'', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(id)
     .bind(group_id)
@@ -50,6 +55,7 @@ pub async fn create_place(
     .bind(triggers)
     .bind(user_id)
     .bind(is_personal)
+    .bind(encrypted_geometry)
     .execute(pool)
     .await?;
 
@@ -58,7 +64,7 @@ pub async fn create_place(
 
 pub async fn get_place(pool: &DbPool, id: &str) -> Result<Option<Place>, sqlx::Error> {
     let row = sqlx::query(
-        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal FROM places WHERE id = ?",
+        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal, encrypted_geometry FROM places WHERE id = ?",
     )
     .bind(id)
     .fetch_optional(pool)
@@ -78,12 +84,13 @@ pub async fn get_place(pool: &DbPool, id: &str) -> Result<Option<Place>, sqlx::E
         created_at: r.get("created_at"),
         user_id: r.get("user_id"),
         is_personal: r.get("is_personal"),
+        encrypted_geometry: r.get("encrypted_geometry"),
     }))
 }
 
 pub async fn list_places_for_group(pool: &DbPool, group_id: &str) -> Result<Vec<Place>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal \
+        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal, encrypted_geometry \
          FROM places WHERE group_id = ? AND is_personal = FALSE",
     )
     .bind(group_id)
@@ -106,16 +113,17 @@ pub async fn list_places_for_group(pool: &DbPool, group_id: &str) -> Result<Vec<
             created_at: r.get("created_at"),
             user_id: r.get("user_id"),
             is_personal: r.get("is_personal"),
+            encrypted_geometry: r.get("encrypted_geometry"),
         })
         .collect())
 }
 
 pub async fn list_places_for_user(pool: &DbPool, user_id: &str) -> Result<Vec<Place>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT p.id, p.group_id, p.name, p.lat, p.lon, p.radius, p.geometry_type, p.polygon_points, p.triggers, p.notify, p.created_at, p.user_id, p.is_personal \
+        "SELECT p.id, p.group_id, p.name, p.lat, p.lon, p.radius, p.geometry_type, p.polygon_points, p.triggers, p.notify, p.created_at, p.user_id, p.is_personal, p.encrypted_geometry \
          FROM places p JOIN group_members gm ON p.group_id = gm.group_id WHERE gm.user_id = ? AND p.is_personal = FALSE \
          UNION \
-         SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal \
+         SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal, encrypted_geometry \
          FROM places WHERE user_id = ? AND is_personal = TRUE",
     )
     .bind(user_id)
@@ -139,13 +147,14 @@ pub async fn list_places_for_user(pool: &DbPool, user_id: &str) -> Result<Vec<Pl
             created_at: r.get("created_at"),
             user_id: r.get("user_id"),
             is_personal: r.get("is_personal"),
+            encrypted_geometry: r.get("encrypted_geometry"),
         })
         .collect())
 }
 
 pub async fn list_personal_places(pool: &DbPool, user_id: &str) -> Result<Vec<Place>, sqlx::Error> {
     let rows = sqlx::query(
-        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal \
+        "SELECT id, group_id, name, lat, lon, radius, geometry_type, polygon_points, triggers, notify, created_at, user_id, is_personal, encrypted_geometry \
          FROM places WHERE user_id = ? AND is_personal = TRUE",
     )
     .bind(user_id)
@@ -168,6 +177,7 @@ pub async fn list_personal_places(pool: &DbPool, user_id: &str) -> Result<Vec<Pl
             created_at: r.get("created_at"),
             user_id: r.get("user_id"),
             is_personal: r.get("is_personal"),
+            encrypted_geometry: r.get("encrypted_geometry"),
         })
         .collect())
 }

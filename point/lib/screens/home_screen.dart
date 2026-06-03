@@ -123,6 +123,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     // Set up MLS encryption for all groups
     await groupNotifier.setupEncryptionForAllGroups(auth.userId ?? '');
 
+    // Ensure the self-group exists so personal place geometry can be decrypted.
+    if (myId.isNotEmpty) {
+      await ref.read(cryptoServiceProvider).ensureSelfGroup(myId);
+    }
+
     // Load places (geofences)
     if (mounted) {
       await locationNotifier.loadPlaces(groups.groups.map((g) => g.id).toList());

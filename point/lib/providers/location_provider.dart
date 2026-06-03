@@ -741,21 +741,57 @@ class LocationNotifier extends Notifier<LocationState> {
     state = state.copyWith(places: List.from(places));
   }
 
-  /// Load all places (group + personal) and set them in state.
+  /// Load all places (group + personal) and set them in state. Encrypted
+  /// geometry (P0-06) is decrypted client-side back into lat/lon/radius/polygon
+  /// so geofence evaluation continues unchanged.
   Future<void> loadPlaces(List<String> groupIds) async {
     final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
     final allPlaces = <Map<String, dynamic>>[];
     for (final gId in groupIds) {
       try {
         final places = await api.listPlaces(gId);
-        allPlaces.addAll(places);
+        for (final p in places) {
+          allPlaces.add(await _decryptPlaceGeometry(crypto, p, gId));
+        }
       } catch (_) {}
     }
     try {
       final personalPlaces = await api.listPersonalPlaces();
-      allPlaces.addAll(personalPlaces);
+      final myId = state.myUserId;
+      for (final p in personalPlaces) {
+        allPlaces.add(
+          await _decryptPlaceGeometry(
+            crypto,
+            p,
+            myId != null ? crypto.selfGroupId(myId) : '',
+          ),
+        );
+      }
     } catch (_) {}
     state = state.copyWith(places: List.from(allPlaces));
+  }
+
+  /// Decrypt a place's encrypted_geometry into lat/lon/radius/polygon_points.
+  /// Legacy plaintext places (no encrypted_geometry) pass through unchanged.
+  Future<Map<String, dynamic>> _decryptPlaceGeometry(
+    dynamic crypto,
+    Map<String, dynamic> place,
+    String decryptGroupId,
+  ) async {
+    final encrypted = place['encrypted_geometry'] as String?;
+    if (encrypted == null || encrypted.isEmpty || decryptGroupId.isEmpty) {
+      return place;
+    }
+    final geom = await crypto.decryptPlace(decryptGroupId, encrypted);
+    if (geom == null) return place;
+    final merged = Map<String, dynamic>.from(place);
+    merged['geometry_type'] = geom['geometry_type'] ?? place['geometry_type'];
+    merged['lat'] = geom['lat'];
+    merged['lon'] = geom['lon'];
+    merged['radius'] = geom['radius'];
+    merged['polygon_points'] = geom['polygon_points'];
+    return merged;
   }
 
   /// Fetch location history for a user.
@@ -768,7 +804,25 @@ class LocationNotifier extends Notifier<LocationState> {
     return await api.getHistory(userId, since: since, limit: limit);
   }
 
-  /// Create a group place (geofence).
+  /// Build the geometry payload that gets MLS-encrypted (P0-06).
+  Map<String, dynamic> _geometryPayload({
+    required String geometryType,
+    double? lat,
+    double? lon,
+    double? radius,
+    List<Map<String, double>>? polygonPoints,
+  }) {
+    return {
+      'geometry_type': geometryType,
+      'lat': lat,
+      'lon': lon,
+      'radius': radius,
+      'polygon_points': polygonPoints,
+    };
+  }
+
+  /// Create a group place (geofence). Geometry is MLS-encrypted via the group
+  /// so the server never stores plaintext coordinates.
   Future<Map<String, dynamic>> createPlace(
     String groupId,
     String name, {
@@ -779,6 +833,17 @@ class LocationNotifier extends Notifier<LocationState> {
     List<Map<String, double>>? polygonPoints,
   }) async {
     final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
+    final encrypted = await crypto.encryptGroupPlace(
+      groupId,
+      _geometryPayload(
+        geometryType: geometryType,
+        lat: lat,
+        lon: lon,
+        radius: radius,
+        polygonPoints: polygonPoints,
+      ),
+    );
     return await api.createPlace(
       groupId,
       name,
@@ -787,10 +852,12 @@ class LocationNotifier extends Notifier<LocationState> {
       lon: lon,
       radius: radius,
       polygonPoints: polygonPoints,
+      encryptedGeometry: encrypted,
     );
   }
 
-  /// Create a personal place (geofence).
+  /// Create a personal place (geofence). Geometry is encrypted via the owner's
+  /// self-group so home/work coordinates never reach the server in plaintext.
   Future<Map<String, dynamic>> createPersonalPlace(
     String name, {
     String geometryType = 'circle',
@@ -800,6 +867,21 @@ class LocationNotifier extends Notifier<LocationState> {
     List<Map<String, double>>? polygonPoints,
   }) async {
     final api = ref.read(apiServiceProvider);
+    final crypto = ref.read(cryptoServiceProvider);
+    final myId = state.myUserId;
+    String? encrypted;
+    if (myId != null && myId.isNotEmpty) {
+      encrypted = await crypto.encryptPersonalPlace(
+        myId,
+        _geometryPayload(
+          geometryType: geometryType,
+          lat: lat,
+          lon: lon,
+          radius: radius,
+          polygonPoints: polygonPoints,
+        ),
+      );
+    }
     return await api.createPersonalPlace(
       name,
       geometryType: geometryType,
@@ -807,6 +889,7 @@ class LocationNotifier extends Notifier<LocationState> {
       lon: lon,
       radius: radius,
       polygonPoints: polygonPoints,
+      encryptedGeometry: encrypted,
     );
   }
 
