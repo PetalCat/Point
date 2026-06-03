@@ -41,3 +41,6 @@ point/android/app/point-release.jks
 .dart_tool/
 bugreport-*.zip
 CLAUDE.md
+
+# iOS local secrets
+point/ios/Flutter/Secrets.xcconfig
