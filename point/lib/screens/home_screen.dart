@@ -101,12 +101,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
         onTokenReceived: (token) async {
           await ref.read(authProvider.notifier).registerFcmToken(token);
         },
-        onMessage: (data) {
-          final type = data['type'] as String?;
-          if (type == 'location.nudge' || type == 'nudge') {
-            ref.read(locationServiceProvider).wake(WakeReason.nudge);
-          }
-        },
+        onMessage: (data) => _handlePushData(data),
       );
     } catch (e) {
       debugPrint('Push init: $e');
@@ -224,6 +219,45 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with WidgetsBindingObse
     }
 
     if (mounted) setState(() => _servicesReady = true);
+  }
+
+  /// Route a foreground push data payload to the right handler (P1-12).
+  /// Push payloads are privacy-safe wake signals — the actual content is
+  /// fetched/decrypted on-device, never carried in the push itself.
+  void _handlePushData(Map<String, dynamic> data) {
+    final type = data['type'] as String?;
+    switch (type) {
+      case 'location.nudge':
+      case 'nudge':
+        // Someone wants a fresh fix — wake GPS to relay.
+        ref.read(locationServiceProvider).wake(WakeReason.nudge);
+        break;
+      case 'mls.welcome':
+      case 'mls.commit':
+      case 'mls.message':
+        // New key exchange waiting — pull and process pending MLS messages.
+        ref.read(cryptoServiceProvider).processPendingMessages();
+        break;
+      case 'share.request':
+      case 'share.accepted':
+      case 'share.rejected':
+      case 'share.temp_created':
+        // Sharing state changed — refresh so the UI and relay targets update.
+        ref.read(sharingProvider.notifier).loadAll();
+        break;
+      case 'place.triggered':
+        // Geofence alert delivered while foregrounded — surface it.
+        final name = data['place_name'] as String? ?? 'a place';
+        final event = data['event'] as String?;
+        final who = (data['user_id'] as String?)?.split('@').first ?? 'Someone';
+        NotificationService.show(
+          title: event == 'enter' ? 'Arrived' : 'Left',
+          body: '$who ${event == 'enter' ? 'arrived at' : 'left'} $name',
+        );
+        break;
+      default:
+        debugPrint('[Push] Unhandled push type: $type');
+    }
   }
 
   /// Groups where the current user has sharing enabled.
