@@ -503,6 +503,12 @@ class ApiService {
     await _request('PUT', '/api/ghost', body: {'ghosted': ghosted});
   }
 
+  /// Replace the server-side per-target ghost set (P1-09). Targets are group
+  /// IDs, user IDs, or '__all__'.
+  Future<void> setGhostTargets(List<String> targets) async {
+    await _request('PUT', '/api/ghost/targets', body: {'targets': targets});
+  }
+
   // Federation
 
   Future<void> sendFederated(String recipient, String messageType, Map<String, dynamic> payload) async {

@@ -257,9 +257,13 @@ class GhostNotifier extends Notifier<GhostState> {
   Future<void> _syncServerGhostFlag() async {
     try {
       final api = ref.read(apiServiceProvider);
-      await api.setGhostFlag(state.isGhostActive);
+      // Global flag — coarse kill switch (true when global ghost or timer).
+      await api.setGhostFlag(state.globalGhost || state.hasActiveTimer);
+      // Per-target set so the SERVER enforces per-group ghost (P1-09), not just
+      // the client. Includes '__all__' or specific group/user IDs.
+      await api.setGhostTargets(state.ghostedGroupIds.toList());
     } catch (e) {
-      debugPrint('[Ghost] Failed to sync server ghost flag: $e');
+      debugPrint('[Ghost] Failed to sync server ghost state: $e');
     }
   }
 

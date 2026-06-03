@@ -132,6 +132,7 @@ pub fn router(state: AppState) -> Router {
         .route("/api/history/{user_id}", get(history::get_history))
         .route("/api/history", delete(history::delete_history))
         .route("/api/ghost", put(ghost::set_ghost))
+        .route("/api/ghost/targets", put(ghost::set_ghost_targets))
         .route("/.well-known/point", get(federation::well_known))
         .route("/federation/inbox", post(federation::inbox))
         .route("/api/federation/send", post(federation::send_federated))

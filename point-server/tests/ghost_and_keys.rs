@@ -35,6 +35,31 @@ async fn ghost_flag_round_trips() {
 }
 
 #[tokio::test]
+async fn ghost_targets_enforce_per_audience() {
+    let pool = test_pool().await;
+    mk_user(&pool, "alice").await;
+
+    // Alice ghosts the "work" group and a specific user "boss".
+    db::users::set_ghost_targets(&pool, "alice", &["work".to_string(), "boss".to_string()])
+        .await.unwrap();
+
+    assert!(db::users::is_ghosted_for(&pool, "alice", "work").await.unwrap());
+    assert!(db::users::is_ghosted_for(&pool, "alice", "boss").await.unwrap());
+    // Not ghosted for the "fam" group.
+    assert!(!db::users::is_ghosted_for(&pool, "alice", "fam").await.unwrap());
+
+    // Replace set with '__all__' — now everything is ghosted.
+    db::users::set_ghost_targets(&pool, "alice", &["__all__".to_string()])
+        .await.unwrap();
+    assert!(db::users::is_ghosted_for(&pool, "alice", "fam").await.unwrap());
+    assert!(db::users::is_ghosted_for(&pool, "alice", "anyone").await.unwrap());
+
+    // Clear — nothing ghosted.
+    db::users::set_ghost_targets(&pool, "alice", &[]).await.unwrap();
+    assert!(!db::users::is_ghosted_for(&pool, "alice", "work").await.unwrap());
+}
+
+#[tokio::test]
 async fn ghost_flag_unknown_user_defaults_false() {
     let pool = test_pool().await;
     // No user created — is_ghost_active should return Ok(false), not error,

@@ -117,3 +117,45 @@ pub async fn is_ghost_active(pool: &DbPool, user_id: &str) -> Result<bool, sqlx:
     use sqlx::Row;
     Ok(row.map(|r| r.get::<bool, _>("ghost_active")).unwrap_or(false))
 }
+
+/// Replace the user's ghosted-target set (group IDs, user IDs, or '__all__').
+/// P1-09 — lets the server enforce per-group ghost, not just the global flag.
+pub async fn set_ghost_targets(
+    pool: &DbPool,
+    user_id: &str,
+    targets: &[String],
+) -> Result<(), sqlx::Error> {
+    let mut tx = pool.begin().await?;
+    sqlx::query("DELETE FROM ghost_targets WHERE user_id = ?")
+        .bind(user_id)
+        .execute(&mut *tx)
+        .await?;
+    for t in targets {
+        sqlx::query("INSERT OR IGNORE INTO ghost_targets (user_id, target_id) VALUES (?, ?)")
+            .bind(user_id)
+            .bind(t)
+            .execute(&mut *tx)
+            .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+/// True if `user_id` has ghosted the given recipient — either '__all__' or the
+/// specific group/user ID. Used in the relay authorization path.
+pub async fn is_ghosted_for(
+    pool: &DbPool,
+    user_id: &str,
+    recipient_id: &str,
+) -> Result<bool, sqlx::Error> {
+    use sqlx::Row;
+    let row = sqlx::query(
+        "SELECT COUNT(*) as cnt FROM ghost_targets \
+         WHERE user_id = ? AND (target_id = '__all__' OR target_id = ?)",
+    )
+    .bind(user_id)
+    .bind(recipient_id)
+    .fetch_one(pool)
+    .await?;
+    Ok(row.get::<i64, _>("cnt") > 0)
+}

@@ -166,13 +166,18 @@ async fn process_message(
 
 /// Central authorization gate: returns true iff `sender` is allowed to send
 /// location to `recipient_type`/`recipient_id`. Fails closed — any DB error
-/// returns Err and the caller must drop the message.
+/// returns Err and the caller must drop the message. Also enforces per-target
+/// ghost (P1-09): a ghosted audience is never delivered to.
 async fn can_send_location(
     pool: &sqlx::SqlitePool,
     sender: &str,
     recipient_type: &str,
     recipient_id: &str,
 ) -> Result<bool, sqlx::Error> {
+    // Per-target ghost: suppress if the sender has ghosted this audience.
+    if db::users::is_ghosted_for(pool, sender, recipient_id).await? {
+        return Ok(false);
+    }
     match recipient_type {
         "group" => db::groups::is_sharing_member(pool, recipient_id, sender).await,
         "user" => db::shares::can_send_to_user(pool, sender, recipient_id).await,
@@ -227,6 +232,20 @@ async fn handle_location_update(user_id: &str, env: &Envelope, state: &AppState,
             }
             Err(e) => {
                 tracing::warn!(error = %e, "authorization check failed — dropping (fail closed)");
+                return;
+            }
+        }
+    } else {
+        // Federated path skips the share check (remote relationship), but still
+        // honors per-target ghost — fail closed on error.
+        match db::users::is_ghosted_for(&state.pool, user_id, recipient_id).await {
+            Ok(false) => {}
+            Ok(true) => {
+                tracing::debug!(sender = %user_id, recipient = %recipient_id, "federated send dropped: ghosted target");
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "ghost-target check failed — dropping federated (fail closed)");
                 return;
             }
         }
@@ -384,6 +403,18 @@ async fn handle_location_batch_update(user_id: &str, env: &Envelope, state: &App
             }
             Err(e) => {
                 tracing::warn!(error = %e, "batch authorization check failed — dropping (fail closed)");
+                return;
+            }
+        }
+    } else {
+        match db::users::is_ghosted_for(&state.pool, user_id, recipient_id).await {
+            Ok(false) => {}
+            Ok(true) => {
+                tracing::debug!(sender = %user_id, recipient = %recipient_id, "federated batch dropped: ghosted target");
+                return;
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "ghost-target check failed — dropping federated batch (fail closed)");
                 return;
             }
         }
