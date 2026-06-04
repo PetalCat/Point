@@ -11,6 +11,7 @@ pub mod bridge_entities;
 pub mod federation;
 pub mod ghost;
 pub mod mls;
+pub mod visibility;
 
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
@@ -133,6 +134,9 @@ pub fn router(state: AppState) -> Router {
         .route("/api/history", delete(history::delete_history))
         .route("/api/ghost", put(ghost::set_ghost))
         .route("/api/ghost/targets", put(ghost::set_ghost_targets))
+        .route("/api/visibility/modes", get(visibility::list_modes).post(visibility::create_mode))
+        .route("/api/visibility/modes/{id}", put(visibility::update_mode).delete(visibility::delete_mode))
+        .route("/api/visibility/active", put(visibility::set_active))
         .route("/.well-known/point", get(federation::well_known))
         .route("/federation/inbox", post(federation::inbox))
         .route("/api/federation/send", post(federation::send_federated))

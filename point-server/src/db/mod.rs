@@ -12,6 +12,7 @@ pub mod zone_consents;
 pub mod bridged_entities;
 pub mod bridge_registry;
 pub mod mls;
+pub mod visibility;
 
 use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
 
