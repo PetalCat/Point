@@ -95,15 +95,22 @@ pub async fn get_keys(
     let packages = db::mls::get_key_packages(&state.pool, &target_user_id).await?;
     let engine = base64::engine::general_purpose::STANDARD;
 
-    Ok(Json(
-        packages
-            .into_iter()
-            .map(|kp| KeyPackageResponse {
-                id: kp.id,
-                key_package: engine.encode(&kp.key_package),
-            })
-            .collect(),
-    ))
+    // Return a single key package and consume it (MLS: each KP is single-use).
+    // Keep the last one as a last-resort package so the user stays addressable
+    // until they upload fresh packages.
+    if let Some(kp) = packages.first() {
+        if packages.len() > 1 {
+            if let Err(e) = db::mls::delete_key_package(&state.pool, &kp.id).await {
+                tracing::warn!(error = %e, "failed to consume key package");
+            }
+        }
+        Ok(Json(vec![KeyPackageResponse {
+            id: kp.id.clone(),
+            key_package: engine.encode(&kp.key_package),
+        }]))
+    } else {
+        Ok(Json(vec![]))
+    }
 }
 
 /// Check if two users share at least one group.
