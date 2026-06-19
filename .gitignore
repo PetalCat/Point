@@ -1,5 +1,6 @@
 # Build artifacts
 target/
+/build/
 point/build/
 website/build/
 website/node_modules/
@@ -42,5 +43,6 @@ point/android/app/point-release.jks
 bugreport-*.zip
 CLAUDE.md
 
-# iOS local secrets
+# iOS local secrets — twin of the gitignored android google-services.json
 point/ios/Flutter/Secrets.xcconfig
+point/ios/Runner/GoogleService-Info.plist
