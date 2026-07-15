@@ -384,8 +384,12 @@ class LocationNotifier extends Notifier<LocationState> {
   /// Relay current position to all recipients.
   ///
   /// When [force] is true, bypasses zone suppression and distance checks.
-  /// Used by the zone heartbeat to ensure contacts always see a fresh position.
-  Future<void> _relayTick({bool force = false}) async {
+  /// When [immediate] is true, sends straight to the network even while
+  /// backgrounded, skipping the batch buffer. Low-rate ticks (the hard-floor
+  /// relay) must set this: the buffer only flushes on its auto-flush timer,
+  /// which is stopped while SLEEPING — so a buffered hard-floor fix would sit
+  /// there until an unrelated overflow, stranding the "last seen" timestamp.
+  Future<void> _relayTick({bool force = false, bool immediate = false}) async {
     final position = _lastPosition;
     if (position == null) return;
 
@@ -449,12 +453,14 @@ class LocationNotifier extends Notifier<LocationState> {
     );
 
     // Background mode: buffer fixes for batched send (fewer radio wakes).
-    if (_isBackgrounded) {
+    // Exception: [immediate] callers (the hard-floor relay) send directly so a
+    // low-rate fix is never stranded in a buffer whose flusher is stopped.
+    if (_isBackgrounded && !immediate) {
       _relayBuffer.add(locationData, onOverflow: _flushBatch);
       return;
     }
 
-    // Foreground mode: send immediately.
+    // Foreground, or an immediate low-rate relay: send now.
     _sendSingleFix(locationData);
   }
 
@@ -612,6 +618,12 @@ class LocationNotifier extends Notifier<LocationState> {
     _hardFloorTimer = null;
   }
 
+  /// Test seam: run exactly one hard-floor tick synchronously-awaitable, so a
+  /// unit test can assert a relay actually leaves the device (rather than
+  /// waiting out the 5-minute interval).
+  @visibleForTesting
+  Future<void> debugRunHardFloorTick() => _forceFreshRelay();
+
   /// Force a fresh fix and relay it, bypassing zone suppression so a fresh
   /// timestamp ALWAYS flows. If inside a learned zone the relayed coordinates
   /// are masked to the zone center (privacy preserved) but the timestamp is
@@ -647,13 +659,20 @@ class LocationNotifier extends Notifier<LocationState> {
       if (currentZone != null) {
         final saved = _lastPosition;
         _lastPosition = _syntheticPosition(currentZone.lat, currentZone.lon, pos);
-        _relayTick(force: true);
+        // PRIVACY-CRITICAL ORDERING: _relayTick reads _lastPosition
+        // synchronously at its first line, BEFORE any await, so it captures the
+        // masked center — not the exact fix we restore on the next line. Do not
+        // move that read past an await, or exact coordinates would leak to
+        // contacts who are only entitled to the zone center. immediate:true
+        // also sends now instead of buffering (the flusher is off while
+        // sleeping); it stays synchronous up to the same first await.
+        _relayTick(force: true, immediate: true);
         _lastPosition = saved;
         return;
       }
     }
 
-    _relayTick(force: true);
+    _relayTick(force: true, immediate: true);
   }
 
   // ---------------------------------------------------------------------------
