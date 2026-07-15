@@ -18,6 +18,10 @@ class RelayBuffer {
   bool get isEmpty => _buffer.isEmpty;
   bool get isNotEmpty => _buffer.isNotEmpty;
 
+  /// Whether the background auto-flush timer is currently running. Used to
+  /// avoid restarting (and resetting) an already-active flush cycle.
+  bool get isAutoFlushing => _autoFlushTimer != null;
+
   /// Add a fix to the buffer. If [maxSize] is reached, fires [onOverflow].
   void add(LocationData fix, {void Function(List<LocationData> batch)? onOverflow}) {
     _buffer.add(fix);
