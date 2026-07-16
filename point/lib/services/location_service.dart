@@ -56,10 +56,8 @@ class LocationService {
   // ---- Accelerometer gate (Layer 1 — v3) ----------------------------------
   StreamSubscription<UserAccelerometerEvent>? _accelSubscription;
   int _motionCount = 0;  // consecutive frames with significant acceleration
-  int _stillCount = 0;   // consecutive frames below threshold
   static const double _motionThreshold = 1.5; // m/s² above gravity noise
   static const int _motionFramesRequired = 5;  // ~500ms of sustained motion at 10Hz
-  static const int _stillFramesRequired = 30;  // ~3s of stillness at 10Hz
 
   // ---- Streams -------------------------------------------------------------
   final _positionController = StreamController<Position>.broadcast();
@@ -192,14 +190,16 @@ class LocationService {
       _startContinuousGps(interval);
       debugPrint('[Location] Backgrounded moving — ${interval.inSeconds}s');
     } else {
-      // Still — GPS OFF per spec. TYPE_SIGNIFICANT_MOTION is a hardware
-      // wake-up sensor that works even when backgrounded/screen off.
-      // Unlike continuous accelerometer, Android doesn't freeze it.
+      // Still — drop high-rate GPS. _startAccelerometerWatch keeps the real
+      // accelerometer running as the primary motion trigger and holds a
+      // low-power passive GPS backup that keeps the foreground service alive
+      // (so the process isn't frozen under Doze and the accelerometer keeps
+      // firing). Heartbeat is the belt-and-suspenders fallback.
       _stopGps();
       _setActivity(LocationActivity.sleeping);
-      _startAccelerometerWatch(); // will use significant motion trigger
+      _startAccelerometerWatch();
       _startHeartbeat();
-      debugPrint('[Location] Backgrounded still — GPS off, significant motion watching, 20min heartbeat');
+      debugPrint('[Location] Backgrounded still — accelerometer primary + passive GPS backup + heartbeat');
     }
   }
 
@@ -355,52 +355,63 @@ class LocationService {
   // =========================================================================
 
   /// Start listening to the accelerometer to detect motion while GPS is OFF.
-  /// UserAccelerometerEvent already has gravity subtracted — readings near 0 = still.
+  ///
+  /// The real accelerometer (gravity already subtracted — readings near 0 =
+  /// still) is the PRIMARY motion trigger in BOTH foreground and background.
+  /// Under an active foreground service Android keeps delivering sensor events
+  /// even with the screen off, so genuine motion is caught within ~500ms.
+  ///
+  /// In the background we ALSO keep a low-power passive GPS stream running.
+  /// It serves two purposes: (1) it holds geolocator's foreground service
+  /// alive, which keeps the process unfrozen under Doze so the accelerometer
+  /// above keeps sampling; (2) it acts as a SECONDARY/backup motion signal —
+  /// a >5m fix auto-transitions to ACTIVE via [_onGpsFix]. It is deliberately
+  /// NOT the sole trigger: Doze silently withholds passive fixes, which is
+  /// exactly what made background tracking go dark before this fix.
   void _startAccelerometerWatch() {
     _accelSubscription?.cancel();
     _motionCount = 0;
-    _stillCount = 0;
 
     if (_isBackgrounded) {
-      // BACKGROUND: Use passive GPS with large distance filter (100m).
-      // FusedLocationProvider uses WiFi/cell in this mode — no GPS hardware.
-      // This is the equivalent of TYPE_SIGNIFICANT_MOTION but works reliably
-      // because geolocator's foreground service keeps the subscription alive.
-      // When the user moves 100m, we get a fix and _onGpsFix auto-transitions
-      // to ACTIVE at full GPS rate.
+      // Start the passive GPS backup FIRST so its foreground service is up
+      // before we begin sampling the accelerometer.
       _startContinuousGps(const Duration(seconds: 60));
-      debugPrint('[Location] Background wake-watch: passive GPS at 60s/100m filter');
+      debugPrint('[Location] Background wake-watch: accelerometer PRIMARY + passive GPS backup');
     } else {
-      // FOREGROUND: Use real accelerometer at 10Hz for instant detection.
-      _accelSubscription = userAccelerometerEventStream(
-        samplingPeriod: const Duration(milliseconds: 100), // 10Hz — ~5mW
-      ).listen((event) {
-        final magnitude = math.sqrt(
-          event.x * event.x + event.y * event.y + event.z * event.z,
-        );
-        if (magnitude > _motionThreshold) {
-          _motionCount++;
-          _stillCount = 0;
-          if (_motionCount >= _motionFramesRequired) {
-            debugPrint('[Location] Accelerometer: motion detected — waking GPS');
-            _stopAccelerometerWatch();
-            wake(WakeReason.movement);
-          }
-        } else {
-          _stillCount++;
-          _motionCount = 0;
-        }
-      });
       debugPrint('[Location] Foreground accelerometer watch ON');
     }
+
+    // Real accelerometer at 10Hz — the primary trigger in every state.
+    _accelSubscription = userAccelerometerEventStream(
+      samplingPeriod: const Duration(milliseconds: 100), // 10Hz — ~5mW
+    ).listen((event) {
+      final magnitude = math.sqrt(
+        event.x * event.x + event.y * event.y + event.z * event.z,
+      );
+      if (magnitude > _motionThreshold) {
+        _motionCount++;
+        if (_motionCount >= _motionFramesRequired) {
+          debugPrint('[Location] Accelerometer: motion detected — waking GPS');
+          _stopAccelerometerWatch();
+          wake(WakeReason.movement);
+        }
+      } else {
+        // Require CONSECUTIVE motion frames — reset on any still frame.
+        _motionCount = 0;
+      }
+    }, onError: (e) {
+      // Accelerometer unavailable (rare hardware/permission case). The passive
+      // GPS backup (started above when backgrounded) still detects motion.
+      debugPrint('[Location] Accelerometer error: $e — relying on passive GPS');
+    });
   }
 
-  /// Stop the accelerometer listener. Called when GPS takes over motion detection.
+  /// Stop the accelerometer listener. Does NOT stop the passive GPS backup —
+  /// callers that hand motion detection to GPS restart the stream themselves.
   void _stopAccelerometerWatch() {
     _accelSubscription?.cancel();
     _accelSubscription = null;
     _motionCount = 0;
-    _stillCount = 0;
     debugPrint('[Location] Accelerometer watch OFF');
   }
 

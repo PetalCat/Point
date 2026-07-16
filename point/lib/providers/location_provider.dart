@@ -28,7 +28,7 @@ class LocationNotifier extends Notifier<LocationState> {
   StreamSubscription<String>? _geofenceExitSubscription;
   Timer? _nudgeTimer;
   Timer? _relayTimer;
-  Timer? _zoneCheckTimer;
+  Timer? _hardFloorTimer;
 
   /// Last position captured from the GPS stream, used by the relay tick.
   Position? _lastPosition;
@@ -39,9 +39,13 @@ class LocationNotifier extends Notifier<LocationState> {
   /// Minimum distance (meters) the device must move before relaying again.
   static const double _relayDistanceThreshold = 5.0;
 
-  /// How often to check if we've left a learned zone while in-zone.
-  /// Catches the case where the OS didn't fire the geofence exit or GPS was asleep.
-  static const Duration _zoneCheckInterval = Duration(minutes: 10);
+  /// Hard-floor relay interval. While sharing, we always force a fresh fix +
+  /// relay this often — even inside a learned zone (coordinates masked to the
+  /// zone center, timestamp fresh) and even when the activity state machine
+  /// thinks we're asleep. This is the safety net that guarantees a missed
+  /// zone-exit or a wedged background GPS can never pin a contact forever, and
+  /// it doubles as the fallback zone-exit detector the OS geofence may miss.
+  static const Duration _hardFloorInterval = Duration(minutes: 5);
 
   /// Auto-flush interval for background batching.
   static const Duration _backgroundFlushInterval = Duration(seconds: 30);
@@ -112,7 +116,7 @@ class LocationNotifier extends Notifier<LocationState> {
       _geofenceExitSubscription?.cancel();
       _nudgeTimer?.cancel();
       _relayTimer?.cancel();
-      _zoneCheckTimer?.cancel();
+      _hardFloorTimer?.cancel();
       _relayBuffer.dispose();
       _geofenceEventsController.close();
       _lastCacheSave = null; // force save on dispose
@@ -215,7 +219,7 @@ class LocationNotifier extends Notifier<LocationState> {
           debugPrint('[Zones] App restart inside "${zone.displayName}" — re-registering');
           _wasInZone = true;
           state = state.copyWith(currentZone: zone);
-          _startZoneCheckTimer();
+          _startHardFloorTimer();
           _registerOsGeofence(zone);
         }
       }
@@ -276,7 +280,7 @@ class LocationNotifier extends Notifier<LocationState> {
       _relayTick(force: true);
       _lastPosition = savedPosition;
       _wasInZone = true;
-      _startZoneCheckTimer();
+      _startHardFloorTimer();
       _registerOsGeofence(zone);
     } else if (_wasInZone) {
       // Check exit with hysteresis — must be clearly outside (1.2x radius).
@@ -332,20 +336,36 @@ class LocationNotifier extends Notifier<LocationState> {
       case LocationActivity.idle:
         // Relay once on entering idle (so server has current pos),
         // then relay on position changes only (no fixed timer)
+        _ensureBackgroundAutoFlush();
         _relayTick();
         break;
       case LocationActivity.active:
+        // Movement returned. If we're backgrounded, relays buffer — so the
+        // auto-flush timer MUST be running again or produced fixes never send.
+        _ensureBackgroundAutoFlush();
         _relayTimer =
             Timer.periodic(const Duration(seconds: 3), (_) => _relayTick());
         break;
       case LocationActivity.fast:
+        _ensureBackgroundAutoFlush();
         _relayTimer =
             Timer.periodic(const Duration(seconds: 5), (_) => _relayTick());
         break;
       case LocationActivity.ghost:
         // Relay blocked.
+        _relayBuffer.stopAutoFlush();
         break;
     }
+  }
+
+  /// Ensure the background batch auto-flush loop is running. No-op in the
+  /// foreground (fixes send directly) or if it's already active. This closes
+  /// the regression where waking back to ACTIVE while backgrounded left the
+  /// buffer filling but never flushing.
+  void _ensureBackgroundAutoFlush() {
+    if (!_isBackgrounded) return;
+    if (_relayBuffer.isAutoFlushing) return;
+    _relayBuffer.startAutoFlush(_backgroundFlushInterval, _flushBatch);
   }
 
   bool _shouldRelayPositionChange(Position position) {
@@ -364,8 +384,12 @@ class LocationNotifier extends Notifier<LocationState> {
   /// Relay current position to all recipients.
   ///
   /// When [force] is true, bypasses zone suppression and distance checks.
-  /// Used by the zone heartbeat to ensure contacts always see a fresh position.
-  Future<void> _relayTick({bool force = false}) async {
+  /// When [immediate] is true, sends straight to the network even while
+  /// backgrounded, skipping the batch buffer. Low-rate ticks (the hard-floor
+  /// relay) must set this: the buffer only flushes on its auto-flush timer,
+  /// which is stopped while SLEEPING — so a buffered hard-floor fix would sit
+  /// there until an unrelated overflow, stranding the "last seen" timestamp.
+  Future<void> _relayTick({bool force = false, bool immediate = false}) async {
     final position = _lastPosition;
     if (position == null) return;
 
@@ -429,12 +453,14 @@ class LocationNotifier extends Notifier<LocationState> {
     );
 
     // Background mode: buffer fixes for batched send (fewer radio wakes).
-    if (_isBackgrounded) {
+    // Exception: [immediate] callers (the hard-floor relay) send directly so a
+    // low-rate fix is never stranded in a buffer whose flusher is stopped.
+    if (_isBackgrounded && !immediate) {
       _relayBuffer.add(locationData, onOverflow: _flushBatch);
       return;
     }
 
-    // Foreground mode: send immediately.
+    // Foreground, or an immediate low-rate relay: send now.
     _sendSingleFix(locationData);
   }
 
@@ -569,46 +595,84 @@ class LocationNotifier extends Notifier<LocationState> {
   }
 
   // ---------------------------------------------------------------------------
-  // Zone check heartbeat (10-min fallback for zone exit detection)
+  // Hard-floor relay (always-on safety net while sharing)
   // ---------------------------------------------------------------------------
 
-  void _startZoneCheckTimer() {
-    _zoneCheckTimer?.cancel();
-    _zoneCheckTimer =
-        Timer.periodic(_zoneCheckInterval, (_) => _zoneCheckTick());
+  /// Start the hard-floor relay loop. Runs only while actively sharing and is
+  /// idempotent (won't restart an already-running loop). This is the single
+  /// always-on guarantee that a fresh position/timestamp keeps flowing no
+  /// matter what the state machine or zone suppression decide.
+  void _startHardFloorTimer() {
+    final sharing =
+        state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty;
+    if (!sharing) return;
+    if (_hardFloorTimer != null) return;
+    _hardFloorTimer =
+        Timer.periodic(_hardFloorInterval, (_) => _forceFreshRelay());
     debugPrint(
-        '[Zones] Zone check heartbeat started (${_zoneCheckInterval.inMinutes}min)');
+        '[Location] Hard-floor relay started (${_hardFloorInterval.inMinutes}min)');
   }
 
-  void _stopZoneCheckTimer() {
-    _zoneCheckTimer?.cancel();
-    _zoneCheckTimer = null;
+  void _stopHardFloorTimer() {
+    _hardFloorTimer?.cancel();
+    _hardFloorTimer = null;
   }
 
-  Future<void> _zoneCheckTick() async {
-    if (!_wasInZone) return;
+  /// Test seam: run exactly one hard-floor tick synchronously-awaitable, so a
+  /// unit test can assert a relay actually leaves the device (rather than
+  /// waiting out the 5-minute interval).
+  @visibleForTesting
+  Future<void> debugRunHardFloorTick() => _forceFreshRelay();
+
+  /// Force a fresh fix and relay it, bypassing zone suppression so a fresh
+  /// timestamp ALWAYS flows. If inside a learned zone the relayed coordinates
+  /// are masked to the zone center (privacy preserved) but the timestamp is
+  /// current — so a missed zone-exit can never pin a contact to a stale point.
+  /// Also serves as the fallback zone-exit detector.
+  Future<void> _forceFreshRelay() async {
+    // Ghost blocks all outbound — don't even burn a GPS fix.
+    final ghostState = ref.read(ghostProvider);
+    if (state.isGhostMode ||
+        ghostState.isGlobalGhostOn ||
+        ghostState.hasActiveTimer) {
+      return;
+    }
 
     final locationService = ref.read(locationServiceProvider);
     final pos = await locationService.getCurrentPosition();
-    if (pos == null || !_wasInZone) return;
-
-    debugPrint('[Zones] Zone check: '
-        '${pos.latitude.toStringAsFixed(5)},${pos.longitude.toStringAsFixed(5)}');
-
-    // Use hysteresis (1.2x radius) for exit — same as GPS-based detection.
-    final currentZone = state.currentZone;
-    final leftZone = currentZone != null &&
-        currentZone.isOutside(pos.latitude, pos.longitude);
+    if (pos == null || _disposed) return;
 
     _lastPosition = pos;
     state = state.copyWith(myPosition: pos);
 
-    if (leftZone) {
-      debugPrint('[Zones] Zone check detected exit');
-      _handleZoneExit();
-    } else {
-      _relayTick();
+    if (_wasInZone) {
+      // Use hysteresis (1.2x radius) for exit — same as GPS-based detection.
+      final currentZone = state.currentZone;
+      final leftZone = currentZone != null &&
+          currentZone.isOutside(pos.latitude, pos.longitude);
+      if (leftZone) {
+        debugPrint('[Zones] Hard-floor detected missed zone exit');
+        _handleZoneExit();
+        return;
+      }
+      // Still inside — relay masked zone center with a FRESH timestamp.
+      if (currentZone != null) {
+        final saved = _lastPosition;
+        _lastPosition = _syntheticPosition(currentZone.lat, currentZone.lon, pos);
+        // PRIVACY-CRITICAL ORDERING: _relayTick reads _lastPosition
+        // synchronously at its first line, BEFORE any await, so it captures the
+        // masked center — not the exact fix we restore on the next line. Do not
+        // move that read past an await, or exact coordinates would leak to
+        // contacts who are only entitled to the zone center. immediate:true
+        // also sends now instead of buffering (the flusher is off while
+        // sleeping); it stays synchronous up to the same first await.
+        _relayTick(force: true, immediate: true);
+        _lastPosition = saved;
+        return;
+      }
     }
+
+    _relayTick(force: true, immediate: true);
   }
 
   // ---------------------------------------------------------------------------
@@ -619,7 +683,7 @@ class LocationNotifier extends Notifier<LocationState> {
     if (!_wasInZone) return;
     state = state.copyWith(clearCurrentZone: true);
     _wasInZone = false;
-    _stopZoneCheckTimer();
+    // Hard-floor timer keeps running while sharing — it's zone-independent.
     _nativeGeofenceService.unregisterAll();
     final locationService = ref.read(locationServiceProvider);
     locationService.wake(WakeReason.movement);
@@ -712,12 +776,17 @@ class LocationNotifier extends Notifier<LocationState> {
   /// on the activity-dependent timer).
   void _autoWake() {
     final locationService = ref.read(locationServiceProvider);
-    locationService.hasActiveShares =
+    final sharing =
         state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty;
+    locationService.hasActiveShares = sharing;
 
-    if (state.activeGroupIds.isNotEmpty || state.activeUserIds.isNotEmpty) {
-      final locationService = ref.read(locationServiceProvider);
+    if (sharing) {
       locationService.wake(WakeReason.movement);
+      // Arm the always-on safety net so a wedged background GPS or a missed
+      // zone-exit can never leave a contact pinned to a stale position.
+      _startHardFloorTimer();
+    } else {
+      _stopHardFloorTimer();
     }
   }
 
